@@ -48,3 +48,4 @@ Returns array of 1536 numbers
 We return those numbers back to server.js
          ↓
 server.js saves text + numbers together in MongoDB
+

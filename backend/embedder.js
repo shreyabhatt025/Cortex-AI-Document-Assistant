@@ -1,51 +1,23 @@
-// embedder.js
-// this file has one job — take a piece of text (one chunk)
-// and convert it into a vector (array of 1536 numbers)
-// using openai's embedding model
-// these numbers capture the MEANING of the text
-// so later we can do similarity search in mongodb
-
-
 // OpenAI is the class we import from the openai package
-// we installed this via npm install openai
 const { OpenAI } = require('openai')
 
 // dotenv loads our .env file
 // so process.env.OPENAI_API_KEY is available here
 require('dotenv').config()
 
-
-// ============================================================
 // initialize openai client
 // this creates one openai connection that we reuse
 // every time generateEmbedding is called
 // we don't create a new client every time — that would be wasteful
-// ============================================================
-
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY  // reads from .env file
 })
 
-
-// ============================================================
-// generateEmbedding - the only function in this file
-//
-// text = one chunk of text (string)
-// example: "To process a refund navigate to billing module..."
-//
-// returns = array of 1536 numbers
-// example: [0.231, -0.872, 0.341, 0.009, 0.112, ...]
-// ============================================================
-
 async function generateEmbedding(text) {
 
     try {
-
-        // -------------------------------------------------------
-        // STEP 1: Send the text to OpenAI embedding API
-        // -------------------------------------------------------
-
-        // openai.embeddings.create() sends our text to openai servers
+// STEP 1: Send the text to OpenAI embedding API
+       // openai.embeddings.create() sends our text to openai servers
         // openai runs it through their embedding model internally
         // and sends back the vector
         // this is async because it's a network request — takes time
@@ -61,11 +33,8 @@ async function generateEmbedding(text) {
             // openai reads this and produces the vector for it
             input: text
         })
-
-
-        // -------------------------------------------------------
-        // STEP 2: Extract the vector from the response
-        // -------------------------------------------------------
+// STEP 2: Extract the vector from the response
+       
 
         // response object looks like this:
         // {
@@ -87,11 +56,8 @@ async function generateEmbedding(text) {
 
         console.log('embedding generated! vector length:', vector.length)
         // vector.length will always be 1536 for text-embedding-3-small
-
-
-        // -------------------------------------------------------
-        // STEP 3: Return the vector
-        // -------------------------------------------------------
+// STEP 3: Return the vector
+       
 
         // this vector goes back to server.js
         // server.js then saves it in mongodb alongside the chunk text
@@ -111,7 +77,5 @@ async function generateEmbedding(text) {
         throw error
     }
 }
-
-
 // export so server.js can import and use it
 module.exports = { generateEmbedding }

@@ -1,81 +1,109 @@
-// OpenAI is the class we import from the openai package
-const { OpenAI } = require('openai')
+// embedder.js
+// UPDATED: using free local model instead of openai
+// @xenova/transformers runs the embedding model directly
+// on your computer — no API key, no cost, no internet needed
 
-// dotenv loads our .env file
-// so process.env.OPENAI_API_KEY is available here
-require('dotenv').config()
 
-// initialize openai client
-// this creates one openai connection that we reuse
-// every time generateEmbedding is called
-// we don't create a new client every time — that would be wasteful
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY  // reads from .env file
-})
+// Pipeline is the main function from xenova transformers
+// it loads an AI model locally and lets us run it
+const { pipeline } = require('@xenova/transformers')
+
+
+// ============================================================
+// EMBEDDER SETUP
+// we create the embedder once and reuse it
+// creating it every time would be very slow
+// because it has to load the model from disk each time
+//
+// 'feature-extraction' means we want embeddings (vectors)
+// 'Xenova/all-MiniLM-L6-v2' is the model name
+// it's a small but accurate sentence embedding model
+// produces 384 numbers per text (openai produces 1536)
+// 384 is enough for our use case
+// ============================================================
+
+// this variable holds our embedder after it's loaded
+// we use let because it starts as null
+let embedder = null
+
+async function loadEmbedder() {
+
+    // only load if not already loaded
+    // this check prevents loading the model multiple times
+    if (embedder === null) {
+        console.log('loading local embedding model...')
+        console.log('(first time takes 1-2 minutes, downloads model files)')
+
+        // pipeline() loads the model from HuggingFace
+        // first time: downloads and caches it on your computer
+        // next times: loads from cache — much faster
+        embedder = await pipeline(
+            'feature-extraction',
+            'Xenova/all-MiniLM-L6-v2'
+        )
+
+        console.log('embedding model loaded successfully!')
+    }
+
+    return embedder
+}
+
+
+// ============================================================
+// generateEmbedding - same function name as before
+// so server.js doesn't need ANY changes
+// we just changed what happens inside
+//
+// text = one chunk of text (string)
+// returns = array of 384 numbers
+// ============================================================
 
 async function generateEmbedding(text) {
 
     try {
-// STEP 1: Send the text to OpenAI embedding API
-       // openai.embeddings.create() sends our text to openai servers
-        // openai runs it through their embedding model internally
-        // and sends back the vector
-        // this is async because it's a network request — takes time
-        const response = await openai.embeddings.create({
 
-            // text-embedding-3-small is the model we use
-            // it produces 1536 numbers per text input
-            // there's also text-embedding-3-large (3072 numbers, more expensive)
-            // small is enough for our use case and much cheaper
-            model: 'text-embedding-3-small',
+        // -------------------------------------------------------
+        // STEP 1: Make sure model is loaded
+        // -------------------------------------------------------
 
-            // input is the actual text we want to convert
-            // openai reads this and produces the vector for it
-            input: text
+        // loadEmbedder() either loads model or returns cached one
+        const embed = await loadEmbedder()
+
+
+        // -------------------------------------------------------
+        // STEP 2: Generate the embedding
+        // -------------------------------------------------------
+
+        // embed() runs the text through the model
+        // pooling: 'mean' means average all word vectors into one
+        // normalize: true means scale numbers between -1 and 1
+        // this makes similarity search more accurate
+        const result = await embed(text, {
+            pooling: 'mean',
+            normalize: true
         })
-// STEP 2: Extract the vector from the response
-       
 
-        // response object looks like this:
-        // {
-        //   data: [
-        //     {
-        //       embedding: [0.231, -0.872, 0.341, ...],  ← 1536 numbers
-        //       index: 0,
-        //       object: "embedding"
-        //     }
-        //   ],
-        //   model: "text-embedding-3-small",
-        //   usage: { prompt_tokens: 47, total_tokens: 47 }
-        // }
 
-        // we only need response.data[0].embedding
-        // [0] because we sent one text, so only one result comes back
-        // .embedding is the actual array of 1536 numbers
-        const vector = response.data[0].embedding
+        // -------------------------------------------------------
+        // STEP 3: Convert to plain javascript array
+        // -------------------------------------------------------
+
+        // result.data is a special Float32Array (not normal array)
+        // mongodb needs a normal javascript array to save it
+        // Array.from() converts it to normal array
+        const vector = Array.from(result.data)
 
         console.log('embedding generated! vector length:', vector.length)
-        // vector.length will always be 1536 for text-embedding-3-small
-// STEP 3: Return the vector
-       
+        // vector.length will be 384 for all-MiniLM-L6-v2
 
-        // this vector goes back to server.js
-        // server.js then saves it in mongodb alongside the chunk text
         return vector
 
+
     } catch (error) {
-
-        // common errors:
-        // → invalid api key (check your .env file)
-        // → rate limit hit (too many requests per minute)
-        // → network issue (no internet connection)
         console.log('error generating embedding:', error.message)
-
-        // throw re-raises the error to server.js
-        // so server.js knows something went wrong
-        // and can send error response to the admin
         throw error
     }
 }
-// export so server.js can import and use it
+
+
 module.exports = { generateEmbedding }

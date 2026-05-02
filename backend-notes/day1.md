@@ -1,3 +1,7 @@
+
+Week 1 — you FED knowledge into the brain
+"Store all SOP chunks + vectors in MongoDB"
+
 DAY 1 = 
 
 pdfParser.js 

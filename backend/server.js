@@ -1,4 +1,3 @@
-// server.js
 // this is the main file of the entire backend
 
 // express is the framework that lets us create a web server
@@ -21,6 +20,10 @@ const { parsePDF } = require('./pdfParser')       // extracts text from pdf
 const { chunkText } = require('./chunker')         // cuts text into chunks
 const { generateEmbedding } = require('./embedder') // converts chunk to vector
 const { connectDB, saveChunk } = require('./db')   // saves to mongodb
+
+const { searchSimilarChunks } = require('./retriever')
+const { buildContext } = require('./contextBuilder')
+const { generateAnswer } = require('./answerGenerator')
 
 // CREATE EXPRESS APP -- it is our web server instance every route , every midleware is attacheted to it 
 const app = express()

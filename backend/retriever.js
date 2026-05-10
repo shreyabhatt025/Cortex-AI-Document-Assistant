@@ -68,7 +68,7 @@ async function searchSimilarChunks(queryVector, topK = 4) {
                 text: 1,           
                 sourceFile: 1,     
                 chunkIndex: 1,    
-                embedding: 0,      
+                     
                 score: {
                     $meta: 'vectorSearchScore'
                 }

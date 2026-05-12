@@ -1,75 +1,85 @@
+// server.js
 // this is the main file of the entire backend
 // week 1 → upload route (admin uploads PDF → store in mongodb)
 // week 2 → ask route (employee asks question → get cited answer)
+// week 3 → updated ask route (streaming response word by word via SSE)
 
-// express is the framework that lets us create a web server it define routes like POST /upload, GET /health etc
+// express lets us create a web server and define routes
 const express = require('express')
-// multer is middleware specifically for handling file uploads ,normal express cannot handle file uploads — multer fills that gap
+
+// multer handles file uploads, normal express cant do this
 const multer = require('multer')
 
-// path helps us work with file paths in a safe cross-platform way
-// example: path.join('uploads', 'file.pdf') works on both windows and mac
+// path helps with file paths, works on both windows and mac
 const path = require('path')
 
-// dotenv loads our .env file so process.env variables work
+// loads .env file so process.env variables are accessible
 require('dotenv').config()
 
-// WEEK 1 IMPORTS
-// these 4 files handle the PDF ingestion pipeline
+// ── WEEK 1 IMPORTS ──────────────────────────────────────────
+// these handle the PDF ingestion pipeline
 const { parsePDF } = require('./pdfParser')         // extracts text from pdf
 const { chunkText } = require('./chunker')           // cuts text into chunks
-const { generateEmbedding } = require('./embedder')  // converts text to vector 
+const { generateEmbedding } = require('./embedder')  // converts text to vector, used in week1 AND week2 both
 const { connectDB, saveChunk } = require('./db')     // mongodb connection and save function
-// these 3 files handle the question answering pipeline
+
+// ── WEEK 2 IMPORTS ──────────────────────────────────────────
+// these handle the question answering pipeline
 const { searchSimilarChunks } = require('./retriever')    // searches mongodb for relevant chunks
 const { buildContext } = require('./contextBuilder')       // formats chunks + writes AI instructions
-const { generateAnswer } = require('./answerGenerator')   // sends to openai, gets cited answer back
-// CREATE EXPRESS APP =app is our web server instance
-// every route and every middleware is attached to this app object
+
+// ── WEEK 3 IMPORT ───────────────────────────────────────────
+// switched from generateAnswer to generateAnswerStream
+// generateAnswer  → returned full answer in one shot (week 2)
+// generateAnswerStream → returns stream object, sends word by word (week 3)
+const { generateAnswerStream } = require('./answerGenerator')
+
+
+// create the express app, all routes attach to this
 const app = express()
-app.use(express.json()) // this tells express to automatically parse JSON request bodies ,so if someone sends { "question": "how to refund?" } we can read req.body.question without this line req.body will be undefined
-// MULTER SETUP=multer handles the file upload part , we need to configure 2 things:
-// 1. WHERE to save uploaded files (storage)
-// 2. WHICH files to accept (fileFilter)
-// diskStorage tells multer to save files on disk (not in memory)
-// we give it 2 functions:
-// destination → which folder to save in
-// filename    → what name to give the saved file
+
+// needed to read req.body.question in the /ask route
+// without this req.body is always undefined
+app.use(express.json())
+
+
+// ── MULTER SETUP ─────────────────────────────────────────────
+// 2 things to configure: where to save files + which files to allow
+
 const storage = multer.diskStorage({
 
     destination: function(req, file, cb) {
-        // cb means callback — multer's way of saying "i'm done, here's the answer"
-        // null means no error
-        // './uploads' is the folder where file will be saved
+        // null = no error, './uploads' = save here
         cb(null, './uploads')
     },
 
     filename: function(req, file, cb) {
-        // we add Date.now() at start of filename to make every filename unique
-        // without this: if 2 admins upload "policy.pdf"
-        // the second one overwrites the first 
-        // with this: "1720000000000-policy.pdf" and "1720000001000-policy.pdf" 
+        // Date.now() makes filename unique
+        // without it two files with same name overwrite each other
         const uniqueName = Date.now() + '-' + file.originalname
         cb(null, uniqueName)
     }
 })
 
-// fileFilter decides which files to ACCEPT and which to REJECT
-// we only want PDF files — reject everything else (images, word docs, etc)
+// only allow PDFs, reject everything else
 const fileFilter = function(req, file, cb) {
-// file.mimetype is the file type sent by the browser , PDFs always have mimetype 'application/pdf'
     if (file.mimetype === 'application/pdf') {
-        cb(null, true)   // true = accept this file
+        cb(null, true)   // accept
     } else {
-        cb(new Error('only PDF files are allowed!'), false)  // false = reject
+        cb(new Error('only PDF files are allowed!'), false)  // reject
     }
 }
-// combine storage + fileFilter into one multer instance
-// this 'upload' variable is what we use in our routes
+
 const upload = multer({
     storage: storage,
     fileFilter: fileFilter
 })
+
+
+// ── ROUTE 1: GET / ───────────────────────────────────────────
+// health check, just to verify server is running
+// open browser → localhost:3000 to test this
+
 app.get('/', (req, res) => {
     res.json({
         message: 'OpsMind AI backend is running!',
@@ -77,71 +87,74 @@ app.get('/', (req, res) => {
     })
 })
 
-// ROUTE 2: POST /uploaD , admin hits this endpoint with a PDF file attached
-// this route runs the entire ingestion pipeline:
-// receive → parse → chunk → embed → save in mongodb
+
+// ── ROUTE 2: POST /upload (WEEK 1) ───────────────────────────
+// admin uploads a PDF here
+// pipeline: receive → parse → chunk → embed → save in mongodb
 
 app.post('/upload', upload.single('pdf'), async (req, res) => {
     // upload.single('pdf') is multer middleware
-    // it runs BEFORE our function and:
-    // → catches the uploaded file from the request
-    // → saves it to /uploads folder automatically
-    // → attaches file info to req.file object
-    // 'pdf' is the field name — postman/frontend must send file with key 'pdf'
+    // runs before our function, saves file to /uploads
+    // and puts file info in req.file
 
-    // GUARD CHECK: did admin actually attach a file?
-    // if multer found no file attached, req.file will be undefined
+    // if no file attached req.file will be undefined
     if (!req.file) {
         return res.status(400).json({
             error: 'no file uploaded. please attach a PDF file'
         })
     }
-    console.log('new pdf received:', req.file.originalname)
-    console.log('saved temporarily at:', req.file.path)
-try {
 
-        //1=  Parse the PDF
-        // req.file.path = path where multer saved the file
-        // parsePDF reads this file and returns one big clean text string
+    console.log('new pdf received:', req.file.originalname)
+    console.log('saved at:', req.file.path)
+
+    try {
+
+        // step 1: extract all text from the pdf
         console.log('step 1: parsing pdf...')
         const fullText = await parsePDF(req.file.path)
-// if pdf was empty or unreadable (scanned image), stop here
+
+        // scanned PDFs have no text, catch that early
         if (!fullText || fullText.length === 0) {
             return res.status(400).json({
                 error: 'could not extract text from this PDF. is it a scanned image?'
             })
         }
+
         console.log('step 1 done! extracted', fullText.length, 'characters')
-//2: Chunk the text
-        // chunkText cuts fullText into array of smaller strings
-        // each string is max 1000 characters with 100 char overlap
+
+        // step 2: cut text into 1000 char pieces with 100 char overlap
         console.log('step 2: chunking text...')
         const chunks = chunkText(fullText, 1000, 100)
         console.log('step 2 done! created', chunks.length, 'chunks')
-//3=Embed each chunk and save to mongodb
-        // loop through every chunk, for each one:
-        // → convert to vector using openai embeddings
-        // → save chunk text + vector + source info to mongodb
+
+        // step 3: for each chunk convert to vector and save in mongodb
         console.log('step 3: embedding and saving chunks...')
         let savedCount = 0
+
         for (let i = 0; i < chunks.length; i++) {
-// generateEmbedding sends chunk text to openai , // gets back array of 1536 numbers that represent its meaning
+
+            // convert chunk text to 1536 numbers via openai
             const vector = await generateEmbedding(chunks[i])
-// saveChunk stores the chunk + vector in mongodb
+
+            // save text + vector + source info to mongodb
             await saveChunk({
-                text: chunks[i],                    // actual paragraph text
-                embedding: vector,                  // the 1536 numbers
-                sourceFile: req.file.originalname,  // original pdf name (used for citation later)
-                chunkIndex: i                       // chunk number (0, 1, 2, 3...)
+                text: chunks[i],
+                embedding: vector,
+                sourceFile: req.file.originalname,  // for citation later
+                chunkIndex: i
             })
+
             savedCount++
-// log progress after every 5 chunks so we know its not frozen
+
+            // log every 5 chunks so we know its not frozen
             if (i % 5 === 0) {
                 console.log(`  progress: ${i + 1} / ${chunks.length} chunks saved`)
             }
         }
-        console.log('step 3 done! all chunks embedded and saved to mongodb')
- // 4: Send success response back to admin
+
+        console.log('step 3 done! all chunks saved to mongodb')
+
+        // 201 = created, something new was stored successfully
         res.status(201).json({
             message: 'PDF successfully uploaded and processed!',
             fileName: req.file.originalname,
@@ -149,9 +162,9 @@ try {
             totalChunks: savedCount,
             status: 'indexed and ready for search'
         })
+
     } catch (error) {
         console.log('error during processing:', error.message)
-        // 500 = Internal Server Error
         res.status(500).json({
             error: 'something went wrong while processing the PDF',
             details: error.message
@@ -159,84 +172,161 @@ try {
     }
 })
 
-// ROUTE 3: POST /ask  (WEEK 2)
-// employee sends a question and gets a cited answer back
-// this route runs the full retrieval + answer pipeline:
-// question → embed → search mongodb → build context → openai → answer
-// expected request body (JSON):
-// { "question": "How do I process a refund?" }
+
+// ── ROUTE 3: POST /ask (WEEK 3 - STREAMING) ──────────────────
+// employee sends a question, gets answer streamed back word by word
+// WHAT CHANGED FROM WEEK 2:
+// week 2 → waited for full answer then sent one JSON response
+// week 3 → sends each word immediately as groq generates it via SSE
+//
+// SSE = Server Sent Events
+// backend keeps connection open and pushes small pieces to frontend
+// frontend receives each piece and shows it on screen immediately
+// this is exactly how chatgpt streams its responses
+//
+// expected request body: { "question": "How do I process a refund?" }
 
 app.post('/ask', async (req, res) => {
 
-    // GUARD CHECK: did employee actually send a question?
     const question = req.body.question
 
+    // guard check: question must exist and not be empty
     if (!question || question.trim().length === 0) {
         return res.status(400).json({
-            error: 'please provide a question in the request body',
+            error: 'please provide a question',
             example: '{ "question": "How do I process a refund?" }'
         })
     }
 console.log('new question received:', question)
-try {
-// 1 Convert question to vector
-      console.log('step 1: converting question to vector...')
-        const questionVector = await generateEmbedding(question)
-        console.log('step 1 done! question converted to vector')
-// 2 Search MongoDB for relevant chunks
-        console.log('step 2: searching mongodb for relevant chunks...')
-        const relevantChunks = await searchSimilarChunks(questionVector, 4)
-        if (relevantChunks.length === 0) {
-            return res.status(404).json({
-                error: 'no relevant information found in the SOP documents',
-                suggestion: 'make sure PDFs are uploaded and vector index is active in Atlas'
-            })
-        }
-console.log('step 2 done! found', relevantChunks.length, 'relevant chunks')
-// 3 Build context package
-        // buildContext does 2 things:
-        // → formats the chunks with source labels like [Source: SOP.pdf | Chunk 2]
-        // → writes strict instructions for openai (no hallucination, cite sources)
-        console.log('step 3: building context window...')
-        const contextPackage = buildContext(relevantChunks, question)
-        console.log('step 3 done! context package ready')
-// 4 Generate answer using OpenAI
-        // generateAnswer sends contextPackage to openai chat api
-        // openai reads the chunks, follows our strict rules AND  returns a cited answer based ONLY on the SOP content
-        console.log('step 4: sending to openai for answer...')
-        const result = await generateAnswer(contextPackage)
-        console.log('step 4 done! answer generated successfully')
-//5=  Send final answer back to employee
-      res.status(200).json({
-            question: question,
-            answer: result.answer,
-            chunksUsed: result.chunksUsed,
-            tokensUsed: result.tokensUsed
-        })
-} catch (error) {
-console.log('error processing question:', error.message)
+    
+    // ── SET SSE HEADERS ──────────────────────────────────────
+    // these 3 headers must be sent BEFORE any data
+    // they tell the browser: keep this connection open,
+    // i will keep sending you small pieces of text
 
-        res.status(500).json({
-            error: 'something went wrong while answering your question',
-            details: error.message
-        })
+    // text/event-stream = this is SSE, not normal JSON
+    res.setHeader('Content-Type', 'text/event-stream')
+
+    // no-cache = dont buffer or cache, send each piece fresh
+    res.setHeader('Cache-Control', 'no-cache')
+
+    // keep-alive = dont close connection after first response
+    // we need it open to keep streaming words
+    res.setHeader('Connection', 'keep-alive')
+
+    // send headers to browser immediately before pipeline starts
+    res.flushHeaders()
+
+
+    try {
+
+        // step 1: convert question to vector
+        // reusing generateEmbedding from week 1 — same function!
+        // question gets same 1536 numbers treatment as pdf chunks
+        console.log('step 1: converting question to vector...')
+        const questionVector = await generateEmbedding(question)
+        console.log('step 1 done!')
+
+        // step 2: search mongodb for top 4 matching chunks
+        console.log('step 2: searching mongodb...')
+        const relevantChunks = await searchSimilarChunks(questionVector, 4)
+
+        // if nothing found send error through SSE and stop
+        // we cant use res.status().json() anymore because
+        // SSE headers are already sent above
+        if (relevantChunks.length === 0) {
+            res.write(`data: ERROR: no relevant information found\n\n`)
+            res.write(`data: [DONE]\n\n`)
+            res.end()
+            return
+        }
+
+        console.log('step 2 done! found', relevantChunks.length, 'chunks')
+
+        // step 3: format chunks + write strict AI instructions
+        console.log('step 3: building context...')
+        const contextPackage = buildContext(relevantChunks, question)
+        console.log('step 3 done!')
+
+        // step 4: start groq stream
+        // this returns a stream object, NOT a complete answer
+        // groq starts generating and sends pieces as it goes
+        console.log('step 4: starting groq stream...')
+        const stream = await generateAnswerStream(contextPackage)
+
+
+        // ── STREAM LOOP ───────────────────────────────────────
+        // for await loops through stream pieces as they arrive
+        // we dont wait for all pieces to come before processing
+        // each piece is handled the moment it arrives
+
+        console.log('step 5: streaming to frontend...')
+
+        let fullAnswer = ''  // collecting full answer just for terminal log
+
+        for await (const piece of stream) {
+
+            // piece.choices[0].delta.content = the new text in this piece
+            // delta means "whats new" — could be a word, half word, punctuation
+            // ?. is optional chaining — avoids crash if property is missing
+            // || '' is fallback — if content is null/undefined use empty string
+            const newText = piece.choices[0]?.delta?.content || ''
+
+            // groq sends empty pieces sometimes at start and end
+            // skip them so we dont send empty SSE events
+            if (newText === '') continue
+
+            fullAnswer += newText
+
+            // SSE FORMAT: every piece must be "data: <text>\n\n"
+            // the \n\n at end is required — browser uses it to
+            // know where one SSE event ends and next begins
+            res.write(`data: ${newText}\n\n`)
+
+            // flush forces this piece to be sent immediately
+            // without flush some servers buffer pieces and send together
+            // which defeats the whole purpose of streaming
+            if (res.flush) res.flush()
+        }
+
+        // send [DONE] signal so React knows streaming is finished
+        // React listens for this and stops reading the stream
+        res.write(`data: [DONE]\n\n`)
+        res.end()
+
+        console.log('streaming complete!')
+        console.log('answer preview:', fullAnswer.substring(0, 100) + '...')
+       
+
+    } catch (error) {
+
+        console.log('error during streaming:', error.message)
+
+        // cant use res.status(500) here because SSE headers already sent
+        // so we send error as SSE event then close connection
+        res.write(`data: ERROR: ${error.message}\n\n`)
+        res.write(`data: [DONE]\n\n`)
+        res.end()
     }
 })
-// START THE SERVER
-// we connect to mongodb FIRST, then start listening
-// order matters — db must be ready before any request comes in
-// if db connection fails, process.exit(1) inside connectDB
-// stops everything — no point running without a database
+
+
+// ── START SERVER ─────────────────────────────────────────────
+// connect to mongodb first, then start listening for requests
+// if db fails, connectDB calls process.exit(1) and stops everything
+// no point running server without a working database
+
 const PORT = process.env.PORT || 3000
+
 connectDB().then(() => {
     app.listen(PORT, () => {
-        console.log('==============================================')
+       
         console.log(`OpsMind AI server running on port ${PORT}`)
-        console.log(`open http://localhost:${PORT} to verify`)
+        console.log(`visit http://localhost:${PORT} to verify`)
         console.log('routes available:')
         console.log('  GET  /        → health check')
         console.log('  POST /upload  → admin uploads PDF (week 1)')
-        console.log('  POST /ask     → employee asks question (week 2)')
-        console.log('==============================================')
+        console.log('  POST /ask     → employee asks question (week 3 streaming)')
+        
     })
 })

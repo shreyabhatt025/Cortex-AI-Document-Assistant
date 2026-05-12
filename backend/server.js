@@ -23,6 +23,7 @@ const { chunkText } = require('./chunker')           // cuts text into chunks
 const { generateEmbedding } = require('./embedder')  // converts text to vector, used in week1 AND week2 both
 const { connectDB, saveChunk } = require('./db')     // mongodb connection and save function
 
+
 // ── WEEK 2 IMPORTS ──────────────────────────────────────────
 // these handle the question answering pipeline
 const { searchSimilarChunks } = require('./retriever')    // searches mongodb for relevant chunks

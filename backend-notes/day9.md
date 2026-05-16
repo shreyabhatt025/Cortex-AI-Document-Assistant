@@ -24,7 +24,6 @@ server.js sends back:
   "question": "How do I process a refund?"
   "answer": "To process a refund navigate to billing..
     Source: OPSMIND_SOP.pdf",
-  "chunksUsed": 4,
+  "chunksUsed": 4
   "tokensUsed": 529
 }
-

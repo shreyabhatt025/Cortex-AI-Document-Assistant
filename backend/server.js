@@ -16,36 +16,22 @@ const path = require('path')
 // loads .env file so process.env variables are accessible
 require('dotenv').config()
 
-// ── WEEK 1 IMPORTS ──────────────────────────────────────────
-// these handle the PDF ingestion pipeline
 const { parsePDF } = require('./pdfParser')         // extracts text from pdf
 const { chunkText } = require('./chunker')           // cuts text into chunks
 const { generateEmbedding } = require('./embedder')  // converts text to vector, used in week1 AND week2 both
 const { connectDB, saveChunk } = require('./db')     // mongodb connection and save function
 
-
-// ── WEEK 2 IMPORTS ──────────────────────────────────────────
 // these handle the question answering pipeline
 const { searchSimilarChunks } = require('./retriever')    // searches mongodb for relevant chunks
 const { buildContext } = require('./contextBuilder')       // formats chunks + writes AI instructions
 
-// ── WEEK 3 IMPORT ───────────────────────────────────────────
-// switched from generateAnswer to generateAnswerStream
-// generateAnswer  → returned full answer in one shot (week 2)
-// generateAnswerStream → returns stream object, sends word by word (week 3)
 const { generateAnswerStream } = require('./answerGenerator')
 
 
 // create the express app, all routes attach to this
 const app = express()
 
-// needed to read req.body.question in the /ask route
-// without this req.body is always undefined
 app.use(express.json())
-
-
-// ── MULTER SETUP ─────────────────────────────────────────────
-// 2 things to configure: where to save files + which files to allow
 
 const storage = multer.diskStorage({
 
@@ -76,11 +62,6 @@ const upload = multer({
     fileFilter: fileFilter
 })
 
-
-// ── ROUTE 1: GET / ───────────────────────────────────────────
-// health check, just to verify server is running
-// open browser → localhost:3000 to test this
-
 app.get('/', (req, res) => {
     res.json({
         message: 'OpsMind AI backend is running!',
@@ -88,17 +69,8 @@ app.get('/', (req, res) => {
     })
 })
 
-
-// ── ROUTE 2: POST /upload (WEEK 1) ───────────────────────────
-// admin uploads a PDF here
-// pipeline: receive → parse → chunk → embed → save in mongodb
-
 app.post('/upload', upload.single('pdf'), async (req, res) => {
-    // upload.single('pdf') is multer middleware
-    // runs before our function, saves file to /uploads
-    // and puts file info in req.file
 
-    // if no file attached req.file will be undefined
     if (!req.file) {
         return res.status(400).json({
             error: 'no file uploaded. please attach a PDF file'
@@ -173,20 +145,6 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     }
 })
 
-
-// ── ROUTE 3: POST /ask (WEEK 3 - STREAMING) ──────────────────
-// employee sends a question, gets answer streamed back word by word
-// WHAT CHANGED FROM WEEK 2:
-// week 2 → waited for full answer then sent one JSON response
-// week 3 → sends each word immediately as groq generates it via SSE
-//
-// SSE = Server Sent Events
-// backend keeps connection open and pushes small pieces to frontend
-// frontend receives each piece and shows it on screen immediately
-// this is exactly how chatgpt streams its responses
-//
-// expected request body: { "question": "How do I process a refund?" }
-
 app.post('/ask', async (req, res) => {
 
     const question = req.body.question
@@ -199,20 +157,12 @@ app.post('/ask', async (req, res) => {
         })
     }
 console.log('new question received:', question)
-    
-    // ── SET SSE HEADERS ──────────────────────────────────────
-    // these 3 headers must be sent BEFORE any data
-    // they tell the browser: keep this connection open,
-    // i will keep sending you small pieces of text
-
-    // text/event-stream = this is SSE, not normal JSON
+ 
     res.setHeader('Content-Type', 'text/event-stream')
 
     // no-cache = dont buffer or cache, send each piece fresh
     res.setHeader('Cache-Control', 'no-cache')
 
-    // keep-alive = dont close connection after first response
-    // we need it open to keep streaming words
     res.setHeader('Connection', 'keep-alive')
 
     // send headers to browser immediately before pipeline starts
@@ -311,15 +261,9 @@ console.log('new question received:', question)
     }
 })
 
-
-// ── START SERVER ─────────────────────────────────────────────
-// connect to mongodb first, then start listening for requests
-// if db fails, connectDB calls process.exit(1) and stops everything
-// no point running server without a working database
-
 const PORT = process.env.PORT || 3000
 
-connectDB().then(() => {
+onnectDB().then(() => {
     app.listen(PORT, () => {
        
         console.log(`OpsMind AI server running on port ${PORT}`)

@@ -9,10 +9,12 @@ export default defineConfig({
       '/ask': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        secure: false,
       },
       '/upload': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        secure: false,
       },
     },
   },

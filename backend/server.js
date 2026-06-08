@@ -1,9 +1,9 @@
 // server.js
-// this is the main file of the entire backend
 // week 1 → upload route (admin uploads PDF → store in mongodb)
 // week 2 → ask route (employee asks question → get cited answer)
 // week 3 → updated ask route (streaming response word by word via SSE)
 // week 4 → sources event added (sends chunk previews after stream ends)
+// week 5 → proper auth added (register / login / verify email / JWT protection)
 
 const express = require('express')
 const multer  = require('multer')
@@ -11,20 +11,39 @@ const path    = require('path')
 require('dotenv').config()
 
 // ── WEEK 1 IMPORTS ───────────────────────────────────────────────────────────
-const { parsePDF }                    = require('./pdfParser')
-const { chunkText }                   = require('./chunker')
-const { generateEmbedding }           = require('./embedder')
-const { connectDB, saveChunk }        = require('./db')
+const { parsePDF }             = require('./pdfParser')
+const { chunkText }            = require('./chunker')
+const { generateEmbedding }    = require('./embedder')
+const { connectDB, saveChunk } = require('./db')
 
 // ── WEEK 2 IMPORTS ───────────────────────────────────────────────────────────
-const { searchSimilarChunks }         = require('./retriever')
-const { buildContext }                = require('./contextBuilder')
+const { searchSimilarChunks }  = require('./retriever')
+const { buildContext }         = require('./contextBuilder')
 
 // ── WEEK 3 IMPORT ────────────────────────────────────────────────────────────
-const { generateAnswerStream }        = require('./answerGenerator')
+const { generateAnswerStream } = require('./answerGenerator')
+
+// ── WEEK 5 IMPORTS ───────────────────────────────────────────────────────────
+const authRoutes      = require('./routes/authRoutes')
+const authMiddleware  = require('./middleware/authMiddleware')
 
 const app = express()
 app.use(express.json())
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// allows the React frontend (localhost:5173) to send requests with
+// the Authorization header — required for JWT to work across ports
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin',  'http://localhost:5173')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+    // OPTIONS is a preflight request browsers send before the real request
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200)
+    }
+    next()
+})
 
 
 // ── MULTER SETUP ─────────────────────────────────────────────────────────────
@@ -52,14 +71,26 @@ const upload = multer({ storage, fileFilter })
 // ── ROUTE 1: GET / ───────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
     res.json({
-        message: 'OpsMind AI backend is running!',
+        message: 'Cortex AI backend is running!',
         status:  'healthy'
     })
 })
 
 
-// ── ROUTE 2: POST /upload (WEEK 1) ───────────────────────────────────────────
-app.post('/upload', upload.single('pdf'), async (req, res) => {
+// ── WEEK 5: AUTH ROUTES ───────────────────────────────────────────────────────
+// mounts all auth routes under /auth prefix
+// POST /auth/register  → create account + send verification email
+// POST /auth/login     → login + get JWT token
+// GET  /auth/verify/:token → verify email address
+// POST /auth/resend    → resend verification email
+app.use('/auth', authRoutes)
+
+
+// ── ROUTE 2: POST /upload (WEEK 1 + WEEK 5) ──────────────────────────────────
+// authMiddleware added — user must be logged in to upload PDFs
+// req.user is now available inside this route (userId, email, name)
+
+app.post('/upload', authMiddleware, upload.single('pdf'), async (req, res) => {
 
     if (!req.file) {
         return res.status(400).json({
@@ -68,6 +99,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     }
 
     console.log('new pdf received:', req.file.originalname)
+    console.log('uploaded by:', req.user.email)
     console.log('saved at:', req.file.path)
 
     try {
@@ -125,19 +157,11 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 })
 
 
-// ── ROUTE 3: POST /ask (WEEK 3 + WEEK 4) ─────────────────────────────────────
-// week 3 → streams answer word by word via SSE
-// week 4 → after stream ends, sends one [SOURCES] event with chunk previews
-//           so the frontend can show clickable citations
-//
-// SSE event order:
-//   data: To\n\n
-//   data:  process\n\n
-//   ...all tokens...
-//   data: [SOURCES]{"sources":[{...},{...}]}\n\n   ← NEW in week 4
-//   data: [DONE]\n\n
+// ── ROUTE 3: POST /ask (WEEK 3 + WEEK 4 + WEEK 5) ────────────────────────────
+// authMiddleware added — user must be logged in to ask questions
+// SSE still works — authMiddleware runs first, then SSE headers are set
 
-app.post('/ask', async (req, res) => {
+app.post('/ask', authMiddleware, async (req, res) => {
 
     const question = req.body.question
 
@@ -148,7 +172,8 @@ app.post('/ask', async (req, res) => {
         })
     }
 
-    console.log('new question received:', question)
+    console.log('new question from:', req.user.email)
+    console.log('question:', question)
 
     // SSE headers — must be sent before any data
     res.setHeader('Content-Type',  'text/event-stream')
@@ -195,8 +220,6 @@ app.post('/ask', async (req, res) => {
             if (newText === '') continue
 
             fullAnswer += newText
-
-            // plain text SSE token — frontend reads line.slice(6)
             res.write(`data: ${newText}\n\n`)
             if (res.flush) res.flush()
         }
@@ -204,31 +227,24 @@ app.post('/ask', async (req, res) => {
         console.log('streaming complete!')
         console.log('answer preview:', fullAnswer.substring(0, 100) + '...')
 
-        // ── WEEK 4: send sources after streaming is done ──────────────────
-        // build a clean sources array from the retrieved chunks
-        // each source has: file name, chunk index, and a short text preview
-        // frontend will display these as clickable citation cards
-
+        // ── send sources after streaming ──────────────────────────────────
         const sources = relevantChunks.map((chunk, i) => ({
             id:         i,
             file:       chunk.sourceFile  || 'Unknown document',
             chunkIndex: chunk.chunkIndex  ?? i,
-            preview:    (chunk.text || '').trim().substring(0, 300),   // first 300 chars shown in drawer
+            preview:    (chunk.text || '').trim().substring(0, 300),
             score:      chunk.score ? parseFloat(chunk.score.toFixed(3)) : null
         }))
 
-        // send as one SSE event — frontend detects [SOURCES] prefix
         res.write(`data: [SOURCES]${JSON.stringify({ sources })}\n\n`)
         if (res.flush) res.flush()
 
-        // signal stream is fully done
         res.write(`data: [DONE]\n\n`)
         res.end()
 
         console.log('sources sent:', sources.map(s => s.file + ' chunk ' + s.chunkIndex).join(', '))
 
     } catch (error) {
-
         console.log('error during streaming:', error.message)
         res.write(`data: ERROR: ${error.message}\n\n`)
         res.write(`data: [DONE]\n\n`)
@@ -242,11 +258,16 @@ const PORT = process.env.PORT || 3000
 
 connectDB().then(() => {
     app.listen(PORT, () => {
-        console.log(`OpsMind AI server running on port ${PORT}`)
+        console.log(`Cortex AI server running on port ${PORT}`)
         console.log(`visit http://localhost:${PORT} to verify`)
         console.log('routes available:')
-        console.log('  GET  /        → health check')
-        console.log('  POST /upload  → admin uploads PDF (week 1)')
-        console.log('  POST /ask     → employee asks question (week 3 + 4 streaming + sources)')
+        console.log('  GET  /                  → health check')
+        console.log('  POST /auth/register     → create account + send email')
+        console.log('  POST /auth/login        → login + get JWT token')
+        console.log('  GET  /auth/verify/:token → verify email')
+        console.log('  POST /auth/resend       → resend verification email')
+        console.log('  POST /upload            → upload PDF (protected)')
+        console.log('  POST /ask               → ask question (protected)')
     })
 })
+

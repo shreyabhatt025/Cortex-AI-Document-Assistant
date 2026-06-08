@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import LandingPage from './LandingPage'
+import AuthPage    from './AuthPage'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STORAGE_KEY      = 'cortex_chat_history'
 const USER_STORAGE_KEY = 'cortex_user'
+const TOKEN_KEY        = 'cortex_token'
 const THEME_KEY        = 'cortex_theme'
 
 const WELCOME = {
@@ -21,9 +23,12 @@ const SUGGESTIONS = [
   'What are the leave policies?',
 ]
 
-// ── Persist helpers ───────────────────────────────────────────────────────────
-function loadUser() {
+// ── localStorage helpers ──────────────────────────────────────────────────────
+function loadUser()  {
   try { return JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) } catch { return null }
+}
+function loadToken() {
+  return localStorage.getItem(TOKEN_KEY) || null
 }
 function loadHistory() {
   try {
@@ -152,21 +157,17 @@ function SourceDrawer({ source, onClose }) {
           </div>
           <button className="drawer-close" onClick={onClose}><CloseIcon /></button>
         </div>
-
         {source.score && (
           <div className="drawer-meta">
             <span className="drawer-meta-label">Relevance score</span>
             <span className="drawer-score">{(source.score * 100).toFixed(1)}%</span>
           </div>
         )}
-
         <div className="drawer-divider" />
-
         <div className="drawer-body">
           <p className="drawer-eyebrow">Retrieved chunk</p>
           <div className="drawer-text">{source.preview}</div>
         </div>
-
         <div className="drawer-footer">
           <span className="drawer-footer-note">
             This chunk was used as context when generating the answer above.
@@ -179,18 +180,9 @@ function SourceDrawer({ source, onClose }) {
 
 // ── User Avatar ───────────────────────────────────────────────────────────────
 function UserAvatar({ user, size = 28 }) {
-  if (user?.picture) {
-    return (
-      <img
-        src={user.picture}
-        alt={user.name}
-        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
-      />
-    )
-  }
   const initials = user?.name
     ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-    : 'G'
+    : '?'
   return (
     <div className="user-initials" style={{ width: size, height: size, fontSize: size * 0.38 }}>
       {initials}
@@ -201,7 +193,9 @@ function UserAvatar({ user, size = 28 }) {
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,        setUser]        = useState(loadUser)
-  const [page,        setPage]        = useState(() => loadUser() ? 'app' : 'landing')
+  const [token,       setToken]       = useState(loadToken)
+  const [page,        setPage]        = useState(() => loadUser() && loadToken() ? 'app' : 'landing')
+  const [verifyToken, setVerifyToken] = useState(null)
   const [darkMode,    setDarkMode]    = useState(loadDarkMode)
   const [messages,    setMessages]    = useState(loadHistory)
   const [input,       setInput]       = useState('')
@@ -215,6 +209,18 @@ export default function App() {
   const bottomRef   = useRef(null)
   const textareaRef = useRef(null)
   const fileRef     = useRef(null)
+
+  // ── Detect ?verify=TOKEN in URL on first load ─────────────────────────────
+  // when user clicks the email link they land on the frontend with this param
+  // we capture it, navigate to AuthPage, and AuthPage handles the API call
+  useEffect(() => {
+    const params      = new URLSearchParams(window.location.search)
+    const emailToken  = params.get('verify')
+    if (emailToken) {
+      setVerifyToken(emailToken)
+      setPage('auth')
+    }
+  }, [])
 
   // Apply dark/light class to <html>
   useEffect(() => {
@@ -243,15 +249,23 @@ export default function App() {
   }, [input])
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
-  const handleAuth = (userData) => {
+  // called by AuthPage after successful login
+  // receives both user info AND the JWT token
+  const handleAuth = (userData, jwtToken) => {
     setUser(userData)
+    setToken(jwtToken)
+    setVerifyToken(null)
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData))
+    localStorage.setItem(TOKEN_KEY, jwtToken)
     setPage('app')
   }
 
   const handleSignOut = () => {
     setUser(null)
+    setToken(null)
     localStorage.removeItem(USER_STORAGE_KEY)
+    localStorage.removeItem(TOKEN_KEY)
+    setMessages([WELCOME])
     setPage('landing')
   }
 
@@ -262,7 +276,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEY)
   }
 
-  // ── SSE streaming ─────────────────────────────────────────────────────────
+  // ── SSE streaming — now includes Authorization header ─────────────────────
   const sendMessage = useCallback(async (override) => {
     const q = (override ?? input).trim()
     if (!q || isStreaming) return
@@ -284,9 +298,18 @@ export default function App() {
     try {
       const res = await fetch('/ask', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ question: q }),
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${token}`,   // ← JWT sent with every question
+        },
+        body: JSON.stringify({ question: q }),
       })
+
+      // 401 = token expired or invalid → force sign out
+      if (res.status === 401) {
+        handleSignOut()
+        return
+      }
 
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
 
@@ -304,13 +327,13 @@ export default function App() {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          const token = line.slice(6)
+          const tok = line.slice(6)
 
-          if (token === '[DONE]') break outer
+          if (tok === '[DONE]') break outer
 
-          if (token.startsWith('[SOURCES]')) {
+          if (tok.startsWith('[SOURCES]')) {
             try {
-              const payload = JSON.parse(token.slice(9))
+              const payload = JSON.parse(tok.slice(9))
               setMessages(prev => prev.map(m =>
                 m.id === aiId ? { ...m, sources: payload.sources || [] } : m
               ))
@@ -318,17 +341,17 @@ export default function App() {
             continue
           }
 
-          if (token.startsWith('ERROR:')) {
+          if (tok.startsWith('ERROR:')) {
             setMessages(prev => prev.map(m =>
               m.id === aiId
-                ? { ...m, text: token.replace('ERROR:', '').trim(), done: true, error: true }
+                ? { ...m, text: tok.replace('ERROR:', '').trim(), done: true, error: true }
                 : m
             ))
             break outer
           }
 
           setMessages(prev => prev.map(m =>
-            m.id === aiId ? { ...m, text: m.text + token } : m
+            m.id === aiId ? { ...m, text: m.text + tok } : m
           ))
         }
       }
@@ -345,7 +368,7 @@ export default function App() {
       setIsStreaming(false)
       textareaRef.current?.focus()
     }
-  }, [input, isStreaming])
+  }, [input, isStreaming, token])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -354,29 +377,57 @@ export default function App() {
     }
   }
 
-  // ── Upload ────────────────────────────────────────────────────────────────
+  // ── Upload — now includes Authorization header ────────────────────────────
   const handleUpload = async (file) => {
     if (!file) return
     if (file.type !== 'application/pdf') {
-      setUploadState('error'); setUploadData({ message: 'Only PDF files are accepted.' }); return
+      setUploadState('error')
+      setUploadData({ message: 'Only PDF files are accepted.' })
+      return
     }
-    setUploadState('loading'); setUploadData(null)
-    const fd = new FormData(); fd.append('pdf', file)
+    setUploadState('loading')
+    setUploadData(null)
+    const fd = new FormData()
+    fd.append('pdf', file)
     try {
-      const res  = await fetch('/upload', { method: 'POST', body: fd })
+      const res = await fetch('/upload', {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${token}` },  // ← JWT sent with upload
+        body:    fd,
+      })
+
+      // 401 = token expired → force sign out
+      if (res.status === 401) { handleSignOut(); return }
+
       const data = await res.json()
       if (res.ok) { setUploadState('success'); setUploadData(data) }
       else throw new Error(data.error || 'Upload failed')
-    } catch (err) { setUploadState('error'); setUploadData({ message: err.message }) }
+    } catch (err) {
+      setUploadState('error')
+      setUploadData({ message: err.message })
+    }
   }
 
-  // ── Landing page ──────────────────────────────────────────────────────────
+  // ── Page routing ──────────────────────────────────────────────────────────
+
+  // LANDING PAGE
   if (page === 'landing') {
     return (
       <LandingPage
-        onAuth={handleAuth}
+        onGetStarted={() => setPage('auth')}   // ← navigate to AuthPage
         darkMode={darkMode}
         toggleDarkMode={toggleDarkMode}
+      />
+    )
+  }
+
+  // AUTH PAGE (login / signup / email verify)
+  if (page === 'auth') {
+    return (
+      <AuthPage
+        onAuth={handleAuth}
+        onBack={() => setPage('landing')}
+        initialVerifyToken={verifyToken}
       />
     )
   }
@@ -408,7 +459,6 @@ export default function App() {
         </nav>
 
         <div className="sidebar-footer">
-          {/* User profile */}
           {user && (
             <div className="sidebar-user">
               <UserAvatar user={user} size={28} />
@@ -419,14 +469,12 @@ export default function App() {
             </div>
           )}
 
-          {/* Controls row */}
           <div className="sidebar-controls">
             <button className="theme-toggle-sm" onClick={toggleDarkMode} title="Toggle theme">
               {darkMode ? <SunIcon /> : <MoonIcon />}
             </button>
-            <button className="signout-btn" onClick={handleSignOut} title="Sign out">
-              <SignOutIcon />
-              <span>Sign out</span>
+            <button className="signout-btn" onClick={handleSignOut}>
+              <SignOutIcon /><span>Sign out</span>
             </button>
           </div>
 
@@ -470,9 +518,7 @@ export default function App() {
                 {messages.map(msg => (
                   <div key={msg.id} className={`msg-row msg-${msg.role}`}>
                     {msg.role === 'assistant' && (
-                      <div className="avatar avatar-ai">
-                        <LogoIcon />
-                      </div>
+                      <div className="avatar avatar-ai"><LogoIcon /></div>
                     )}
                     <div className="msg-content">
                       <div className={`bubble bubble-${msg.role}${msg.error ? ' bubble-error' : ''}`}>
@@ -485,9 +531,7 @@ export default function App() {
                           {msg.sources.map((src, i) => (
                             <button key={i} className="source-chip" onClick={() => setDrawer(src)}>
                               <DocIcon />{src.file}
-                              {src.score && (
-                                <span className="source-score">{(src.score * 100).toFixed(0)}%</span>
-                              )}
+                              {src.score && <span className="source-score">{(src.score * 100).toFixed(0)}%</span>}
                             </button>
                           ))}
                         </div>
@@ -500,7 +544,6 @@ export default function App() {
                     )}
                   </div>
                 ))}
-
                 {isStreaming && messages.at(-1)?.text === '' && (
                   <div className="thinking"><span /><span /><span /></div>
                 )}
@@ -548,7 +591,6 @@ export default function App() {
               <h1 className="upload-title">Upload SOP Document</h1>
               <p className="upload-sub">Add PDFs to the knowledge base. Each file is parsed, chunked, embedded, and indexed automatically.</p>
             </div>
-
             <div className="pipeline">
               {[
                 { n: 1, label: 'Parse PDF',      desc: 'Extract raw text from document' },
@@ -568,7 +610,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-
             <div
               className={`dropzone${dragOver ? ' dz-active' : ''} dz-${uploadState}`}
               onClick={() => uploadState !== 'loading' && fileRef.current?.click()}
@@ -577,7 +618,6 @@ export default function App() {
               onDrop={e => { e.preventDefault(); setDragOver(false); handleUpload(e.dataTransfer.files[0]) }}
             >
               <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files[0])} />
-
               {uploadState === 'idle' && (
                 <div className="dz-content">
                   <div className="dz-icon"><UploadBigIcon /></div>

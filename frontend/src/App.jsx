@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import LandingPage from './LandingPage'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const STORAGE_KEY = 'opsmind_chat_history'
+const STORAGE_KEY      = 'cortex_chat_history'
+const USER_STORAGE_KEY = 'cortex_user'
+const THEME_KEY        = 'cortex_theme'
 
 const WELCOME = {
-  id: 'welcome',
-  role: 'assistant',
-  text: "Hello. I'm **OpsMind AI** — your company's SOP assistant.\n\nAsk me anything about internal procedures, refund policies, escalation protocols, or onboarding steps. Every answer is grounded in your uploaded documents.",
+  id:      'welcome',
+  role:    'assistant',
+  text:    "Hello. I'm **Cortex** — your AI-powered document assistant.\n\nUpload a PDF and ask me anything about it. I'll find the exact answer from your document, complete with source citations.",
   sources: [],
-  done: true,
+  done:    true,
 }
 
 const SUGGESTIONS = [
@@ -18,20 +21,22 @@ const SUGGESTIONS = [
   'What are the leave policies?',
 ]
 
-// ── Load saved history from localStorage ──────────────────────────────────────
+// ── Persist helpers ───────────────────────────────────────────────────────────
+function loadUser() {
+  try { return JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) } catch { return null }
+}
 function loadHistory() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return [WELCOME]
-    const parsed = JSON.parse(raw)
-    // Ensure all saved messages are marked done (no stuck cursors)
-    return parsed.map(m => ({ ...m, done: true }))
-  } catch {
-    return [WELCOME]
-  }
+    return JSON.parse(raw).map(m => ({ ...m, done: true }))
+  } catch { return [WELCOME] }
+}
+function loadDarkMode() {
+  return localStorage.getItem(THEME_KEY) !== 'light'
 }
 
-// ── Renders **bold** and line breaks ──────────────────────────────────────────
+// ── Rich text renderer ────────────────────────────────────────────────────────
 function RichText({ text }) {
   return text.split('\n').map((line, i, arr) => {
     const segs = line.split(/\*\*(.*?)\*\*/g)
@@ -45,6 +50,13 @@ function RichText({ text }) {
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
+function LogoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" /><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+    </svg>
+  )
+}
 function ChatIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -55,76 +67,81 @@ function ChatIcon() {
 function UploadIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   )
 }
 function SendIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="22" y1="2" x2="11" y2="13" />
-      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
     </svg>
   )
 }
 function DocIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
     </svg>
   )
 }
 function UploadBigIcon() {
   return (
     <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   )
 }
 function CloseIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   )
 }
 function TrashIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  )
+}
+function SunIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  )
+}
+function MoonIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  )
+}
+function SignOutIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
     </svg>
   )
 }
 
 // ── Source Drawer ─────────────────────────────────────────────────────────────
-// Slides in from the right when a source chip is clicked
 function SourceDrawer({ source, onClose }) {
-  // Close on Escape key
   useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    const h = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
   }, [onClose])
 
   if (!source) return null
 
   return (
     <>
-      {/* Backdrop */}
       <div className="drawer-backdrop" onClick={onClose} />
-
-      {/* Drawer panel */}
       <div className="drawer">
-        {/* Drawer header */}
         <div className="drawer-header">
           <div className="drawer-header-left">
             <div className="drawer-icon"><DocIcon /></div>
@@ -133,12 +150,9 @@ function SourceDrawer({ source, onClose }) {
               <span className="drawer-subtitle">Chunk {source.chunkIndex + 1}</span>
             </div>
           </div>
-          <button className="drawer-close" onClick={onClose}>
-            <CloseIcon />
-          </button>
+          <button className="drawer-close" onClick={onClose}><CloseIcon /></button>
         </div>
 
-        {/* Score badge */}
         {source.score && (
           <div className="drawer-meta">
             <span className="drawer-meta-label">Relevance score</span>
@@ -146,16 +160,13 @@ function SourceDrawer({ source, onClose }) {
           </div>
         )}
 
-        {/* Divider */}
         <div className="drawer-divider" />
 
-        {/* Chunk text */}
         <div className="drawer-body">
           <p className="drawer-eyebrow">Retrieved chunk</p>
           <div className="drawer-text">{source.preview}</div>
         </div>
 
-        {/* Footer */}
         <div className="drawer-footer">
           <span className="drawer-footer-note">
             This chunk was used as context when generating the answer above.
@@ -166,8 +177,32 @@ function SourceDrawer({ source, onClose }) {
   )
 }
 
+// ── User Avatar ───────────────────────────────────────────────────────────────
+function UserAvatar({ user, size = 28 }) {
+  if (user?.picture) {
+    return (
+      <img
+        src={user.picture}
+        alt={user.name}
+        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
+      />
+    )
+  }
+  const initials = user?.name
+    ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+    : 'G'
+  return (
+    <div className="user-initials" style={{ width: size, height: size, fontSize: size * 0.38 }}>
+      {initials}
+    </div>
+  )
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
+  const [user,        setUser]        = useState(loadUser)
+  const [page,        setPage]        = useState(() => loadUser() ? 'app' : 'landing')
+  const [darkMode,    setDarkMode]    = useState(loadDarkMode)
   const [messages,    setMessages]    = useState(loadHistory)
   const [input,       setInput]       = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -175,21 +210,23 @@ export default function App() {
   const [uploadState, setUploadState] = useState('idle')
   const [uploadData,  setUploadData]  = useState(null)
   const [dragOver,    setDragOver]    = useState(false)
-  const [drawer,      setDrawer]      = useState(null)   // source object | null
+  const [drawer,      setDrawer]      = useState(null)
 
   const bottomRef   = useRef(null)
   const textareaRef = useRef(null)
   const fileRef     = useRef(null)
 
-  // ── Persist chat to localStorage on every change ────────────────────────────
+  // Apply dark/light class to <html>
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', !darkMode)
+    localStorage.setItem(THEME_KEY, darkMode ? 'dark' : 'light')
+  }, [darkMode])
+
+  // Persist chat history
   useEffect(() => {
     try {
-      // Only save messages that are fully done (don't save mid-stream state)
-      const toSave = messages.filter(m => m.done)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
-    } catch {
-      // localStorage quota exceeded or unavailable — fail silently
-    }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.filter(m => m.done)))
+    } catch {}
   }, [messages])
 
   // Auto-scroll
@@ -205,13 +242,27 @@ export default function App() {
     el.style.height = Math.min(el.scrollHeight, 180) + 'px'
   }, [input])
 
-  // Clear chat history
+  // ── Auth handlers ─────────────────────────────────────────────────────────
+  const handleAuth = (userData) => {
+    setUser(userData)
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData))
+    setPage('app')
+  }
+
+  const handleSignOut = () => {
+    setUser(null)
+    localStorage.removeItem(USER_STORAGE_KEY)
+    setPage('landing')
+  }
+
+  const toggleDarkMode = () => setDarkMode(d => !d)
+
   const clearHistory = () => {
     setMessages([WELCOME])
     localStorage.removeItem(STORAGE_KEY)
   }
 
-  // ── SSE streaming + sources parsing ─────────────────────────────────────────
+  // ── SSE streaming ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (override) => {
     const q = (override ?? input).trim()
     if (!q || isStreaming) return
@@ -232,9 +283,9 @@ export default function App() {
 
     try {
       const res = await fetch('/ask', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q }),
+        body:    JSON.stringify({ question: q }),
       })
 
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
@@ -253,25 +304,17 @@ export default function App() {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-
-          // Preserve leading spaces — slice exactly 6 chars
           const token = line.slice(6)
 
           if (token === '[DONE]') break outer
 
-          // ── WEEK 4: sources event ───────────────────────────────────────
-          // Backend sends: data: [SOURCES]{"sources":[...]}
           if (token.startsWith('[SOURCES]')) {
             try {
-              const payload = JSON.parse(token.slice(9))  // slice '[SOURCES]'
+              const payload = JSON.parse(token.slice(9))
               setMessages(prev => prev.map(m =>
-                m.id === aiId
-                  ? { ...m, sources: payload.sources || [] }
-                  : m
+                m.id === aiId ? { ...m, sources: payload.sources || [] } : m
               ))
-            } catch {
-              // Malformed sources JSON — skip silently
-            }
+            } catch {}
             continue
           }
 
@@ -284,7 +327,6 @@ export default function App() {
             break outer
           }
 
-          // Plain text token — append directly
           setMessages(prev => prev.map(m =>
             m.id === aiId ? { ...m, text: m.text + token } : m
           ))
@@ -312,42 +354,44 @@ export default function App() {
     }
   }
 
-  // ── Upload ───────────────────────────────────────────────────────────────────
+  // ── Upload ────────────────────────────────────────────────────────────────
   const handleUpload = async (file) => {
     if (!file) return
     if (file.type !== 'application/pdf') {
-      setUploadState('error')
-      setUploadData({ message: 'Only PDF files are accepted.' })
-      return
+      setUploadState('error'); setUploadData({ message: 'Only PDF files are accepted.' }); return
     }
-    setUploadState('loading')
-    setUploadData(null)
-    const fd = new FormData()
-    fd.append('pdf', file)
+    setUploadState('loading'); setUploadData(null)
+    const fd = new FormData(); fd.append('pdf', file)
     try {
       const res  = await fetch('/upload', { method: 'POST', body: fd })
       const data = await res.json()
       if (res.ok) { setUploadState('success'); setUploadData(data) }
       else throw new Error(data.error || 'Upload failed')
-    } catch (err) {
-      setUploadState('error')
-      setUploadData({ message: err.message })
-    }
+    } catch (err) { setUploadState('error'); setUploadData({ message: err.message }) }
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Landing page ──────────────────────────────────────────────────────────
+  if (page === 'landing') {
+    return (
+      <LandingPage
+        onAuth={handleAuth}
+        darkMode={darkMode}
+        toggleDarkMode={toggleDarkMode}
+      />
+    )
+  }
+
+  // ── Main App ──────────────────────────────────────────────────────────────
   return (
     <div className="shell">
-
-      {/* Source drawer — rendered at root level so it overlays everything */}
       <SourceDrawer source={drawer} onClose={() => setDrawer(null)} />
 
-      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
+      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">OM</div>
+          <div className="brand-mark"><LogoIcon /></div>
           <div className="brand-copy">
-            <span className="brand-name">OpsMind</span>
+            <span className="brand-name">Cortex</span>
             <span className="brand-tagline">AI Assistant</span>
           </div>
         </div>
@@ -364,6 +408,28 @@ export default function App() {
         </nav>
 
         <div className="sidebar-footer">
+          {/* User profile */}
+          {user && (
+            <div className="sidebar-user">
+              <UserAvatar user={user} size={28} />
+              <div className="sidebar-user-info">
+                <span className="sidebar-user-name">{user.name}</span>
+                {user.email && <span className="sidebar-user-email">{user.email}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Controls row */}
+          <div className="sidebar-controls">
+            <button className="theme-toggle-sm" onClick={toggleDarkMode} title="Toggle theme">
+              {darkMode ? <SunIcon /> : <MoonIcon />}
+            </button>
+            <button className="signout-btn" onClick={handleSignOut} title="Sign out">
+              <SignOutIcon />
+              <span>Sign out</span>
+            </button>
+          </div>
+
           <div className="status">
             <span className="status-dot" />
             <span>Backend · Port 3000</span>
@@ -376,106 +442,80 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ── Main ───────────────────────────────────────────────────────────── */}
+      {/* ── Main ─────────────────────────────────────────────────────────── */}
       <div className="main">
 
-        {/* ════ CHAT VIEW ════════════════════════════════════════════════════ */}
+        {/* CHAT VIEW */}
         {view === 'chat' && (
           <div className="chat-shell">
-
-            {/* Top bar */}
             <div className="chat-topbar">
               <div className="chat-topbar-left">
                 <h1 className="chat-title">SOP Assistant</h1>
                 <span className="chat-subtitle">Answers grounded in your uploaded documents</span>
               </div>
               <div className="chat-topbar-right">
-                {/* Clear history button */}
                 {messages.length > 1 && (
-                  <button className="clear-btn" onClick={clearHistory} title="Clear chat history">
-                    <TrashIcon />
-                    <span>Clear</span>
+                  <button className="clear-btn" onClick={clearHistory}>
+                    <TrashIcon /><span>Clear</span>
                   </button>
                 )}
                 <div className="model-pill">
-                  <span className="model-dot" />
-                  Groq · Streaming
+                  <span className="model-dot" />Groq · Streaming
                 </div>
               </div>
             </div>
 
-            {/* Messages */}
             <div className="msg-scroll">
               <div className="msg-list">
                 {messages.map(msg => (
                   <div key={msg.id} className={`msg-row msg-${msg.role}`}>
-
                     {msg.role === 'assistant' && (
-                      <div className="avatar avatar-ai">OM</div>
+                      <div className="avatar avatar-ai">
+                        <LogoIcon />
+                      </div>
                     )}
-
                     <div className="msg-content">
                       <div className={`bubble bubble-${msg.role}${msg.error ? ' bubble-error' : ''}`}>
-                        {msg.text
-                          ? <RichText text={msg.text} />
-                          : !msg.done && <span className="cursor" />
-                        }
+                        {msg.text ? <RichText text={msg.text} /> : !msg.done && <span className="cursor" />}
                         {!msg.done && msg.text && <span className="cursor" />}
                       </div>
-
-                      {/* Source chips — clickable, open drawer */}
                       {msg.sources?.length > 0 && (
                         <div className="source-row">
                           <span className="source-label">Sources</span>
                           {msg.sources.map((src, i) => (
-                            <button
-                              key={i}
-                              className="source-chip"
-                              onClick={() => setDrawer(src)}
-                              title="Click to view chunk"
-                            >
-                              <DocIcon />
-                              {src.file}
+                            <button key={i} className="source-chip" onClick={() => setDrawer(src)}>
+                              <DocIcon />{src.file}
                               {src.score && (
-                                <span className="source-score">
-                                  {(src.score * 100).toFixed(0)}%
-                                </span>
+                                <span className="source-score">{(src.score * 100).toFixed(0)}%</span>
                               )}
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
-
                     {msg.role === 'user' && (
-                      <div className="avatar avatar-user">You</div>
+                      <div className="avatar avatar-user">
+                        <UserAvatar user={user} size={28} />
+                      </div>
                     )}
                   </div>
                 ))}
 
-                {/* Thinking dots */}
                 {isStreaming && messages.at(-1)?.text === '' && (
-                  <div className="thinking">
-                    <span /><span /><span />
-                  </div>
+                  <div className="thinking"><span /><span /><span /></div>
                 )}
-
                 <div ref={bottomRef} />
               </div>
             </div>
 
-            {/* Suggestions — only on welcome screen */}
             {messages.length === 1 && (
               <div className="suggestions">
                 {SUGGESTIONS.map(s => (
-                  <button key={s} className="sugg-chip" onClick={() => sendMessage(s)}>
-                    {s}
-                  </button>
+                  <button key={s} className="sugg-chip" onClick={() => sendMessage(s)}>{s}</button>
                 ))}
               </div>
             )}
 
-            {/* Input */}
             <div className="input-area">
               <div className={`input-ring${isStreaming ? ' input-ring-busy' : ''}`}>
                 <textarea
@@ -501,14 +541,12 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ UPLOAD VIEW ══════════════════════════════════════════════════ */}
+        {/* UPLOAD VIEW */}
         {view === 'upload' && (
           <div className="upload-shell">
             <div className="upload-topbar">
               <h1 className="upload-title">Upload SOP Document</h1>
-              <p className="upload-sub">
-                Add PDFs to the knowledge base. Each file is parsed, chunked, embedded, and indexed in MongoDB automatically.
-              </p>
+              <p className="upload-sub">Add PDFs to the knowledge base. Each file is parsed, chunked, embedded, and indexed automatically.</p>
             </div>
 
             <div className="pipeline">
@@ -559,18 +597,14 @@ export default function App() {
                   <div className="dz-checkmark">✓</div>
                   <p className="dz-primary dz-ok">{uploadData?.fileName} indexed</p>
                   <p className="dz-secondary">{uploadData?.totalChunks} chunks · {uploadData?.totalCharacters?.toLocaleString()} characters stored</p>
-                  <button className="dz-reset" onClick={e => { e.stopPropagation(); setUploadState('idle'); setUploadData(null) }}>
-                    Upload another document
-                  </button>
+                  <button className="dz-reset" onClick={e => { e.stopPropagation(); setUploadState('idle'); setUploadData(null) }}>Upload another</button>
                 </div>
               )}
               {uploadState === 'error' && (
                 <div className="dz-content">
                   <div className="dz-warnsign">⚠</div>
                   <p className="dz-primary dz-bad">{uploadData?.message || 'Upload failed'}</p>
-                  <button className="dz-reset" onClick={e => { e.stopPropagation(); setUploadState('idle'); setUploadData(null) }}>
-                    Try again
-                  </button>
+                  <button className="dz-reset" onClick={e => { e.stopPropagation(); setUploadState('idle'); setUploadData(null) }}>Try again</button>
                 </div>
               )}
             </div>

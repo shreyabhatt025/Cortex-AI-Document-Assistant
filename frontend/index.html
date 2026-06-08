@@ -1,16 +1,24 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <meta name="description" content="OpsMind AI - Enterprise SOP Assistant powered by RAG" />
-    <meta name="theme-color" content="#0f172a" />
-    <title>OpsMind AI | Enterprise SOP Assistant</title>
-    <!-- Preconnect to Google Fonts for Inter font -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- SEO -->
+    <meta name="description" content="Cortex — AI-powered PDF question answering. Upload your document, ask anything, get instant cited answers." />
+    <meta name="theme-color" content="#0C0D11" />
+
+    <!-- Open Graph -->
+    <meta property="og:title"       content="Cortex — AI Document Assistant" />
+    <meta property="og:description" content="Stop searching through PDFs manually. Upload, ask, and get accurate answers instantly." />
+    <meta property="og:type"        content="website" />
+
+    <title>Cortex — AI Document Assistant</title>
+
+    <!-- Google Identity Services — required for Google OAuth -->
+    <!-- Replace YOUR_GOOGLE_CLIENT_ID in .env with your actual Client ID -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
     <div id="root"></div>

@@ -196,6 +196,7 @@ export default function App() {
   const [token,       setToken]       = useState(loadToken)
   const [page,        setPage]        = useState(() => loadUser() && loadToken() ? 'app' : 'landing')
   const [verifyToken, setVerifyToken] = useState(null)
+  const [resetToken,  setResetToken]  = useState(null)   // ← CHANGE 1: new state for ?reset= token
   const [darkMode,    setDarkMode]    = useState(loadDarkMode)
   const [messages,    setMessages]    = useState(loadHistory)
   const [input,       setInput]       = useState('')
@@ -210,14 +211,17 @@ export default function App() {
   const textareaRef = useRef(null)
   const fileRef     = useRef(null)
 
-  // ── Detect ?verify=TOKEN in URL on first load ─────────────────────────────
-  // when user clicks the email link they land on the frontend with this param
-  // we capture it, navigate to AuthPage, and AuthPage handles the API call
+  // ── CHANGE 2: Detect ?verify=TOKEN and ?reset=TOKEN in URL on first load ──
   useEffect(() => {
-    const params      = new URLSearchParams(window.location.search)
-    const emailToken  = params.get('verify')
+    const params     = new URLSearchParams(window.location.search)
+    const emailToken = params.get('verify')
+    const resetTok   = params.get('reset')
+
     if (emailToken) {
       setVerifyToken(emailToken)
+      setPage('auth')
+    } else if (resetTok) {
+      setResetToken(resetTok)
       setPage('auth')
     }
   }, [])
@@ -249,12 +253,11 @@ export default function App() {
   }, [input])
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
-  // called by AuthPage after successful login
-  // receives both user info AND the JWT token
   const handleAuth = (userData, jwtToken) => {
     setUser(userData)
     setToken(jwtToken)
     setVerifyToken(null)
+    setResetToken(null)
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData))
     localStorage.setItem(TOKEN_KEY, jwtToken)
     setPage('app')
@@ -276,7 +279,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEY)
   }
 
-  // ── SSE streaming — now includes Authorization header ─────────────────────
+  // ── SSE streaming ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (override) => {
     const q = (override ?? input).trim()
     if (!q || isStreaming) return
@@ -300,17 +303,12 @@ export default function App() {
         method:  'POST',
         headers: {
           'Content-Type':  'application/json',
-          'Authorization': `Bearer ${token}`,   // ← JWT sent with every question
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ question: q }),
       })
 
-      // 401 = token expired or invalid → force sign out
-      if (res.status === 401) {
-        handleSignOut()
-        return
-      }
-
+      if (res.status === 401) { handleSignOut(); return }
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
 
       const reader  = res.body.getReader()
@@ -377,7 +375,7 @@ export default function App() {
     }
   }
 
-  // ── Upload — now includes Authorization header ────────────────────────────
+  // ── Upload ────────────────────────────────────────────────────────────────
   const handleUpload = async (file) => {
     if (!file) return
     if (file.type !== 'application/pdf') {
@@ -392,13 +390,10 @@ export default function App() {
     try {
       const res = await fetch('/upload', {
         method:  'POST',
-        headers: { 'Authorization': `Bearer ${token}` },  // ← JWT sent with upload
+        headers: { 'Authorization': `Bearer ${token}` },
         body:    fd,
       })
-
-      // 401 = token expired → force sign out
       if (res.status === 401) { handleSignOut(); return }
-
       const data = await res.json()
       if (res.ok) { setUploadState('success'); setUploadData(data) }
       else throw new Error(data.error || 'Upload failed')
@@ -414,20 +409,21 @@ export default function App() {
   if (page === 'landing') {
     return (
       <LandingPage
-        onGetStarted={() => setPage('auth')}   // ← navigate to AuthPage
+        onGetStarted={() => setPage('auth')}
         darkMode={darkMode}
         toggleDarkMode={toggleDarkMode}
       />
     )
   }
 
-  // AUTH PAGE (login / signup / email verify)
+  // AUTH PAGE — CHANGE 3: pass initialResetToken prop
   if (page === 'auth') {
     return (
       <AuthPage
         onAuth={handleAuth}
         onBack={() => setPage('landing')}
         initialVerifyToken={verifyToken}
+        initialResetToken={resetToken}
       />
     )
   }

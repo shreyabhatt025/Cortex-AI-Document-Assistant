@@ -7,15 +7,22 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/ask': {
-        target: 'http://localhost:3000',
+        target:       'http://localhost:3000',
         changeOrigin: true,
-        secure: false,
+        secure:       false,
       },
       '/upload': {
-        target: 'http://localhost:3000',
+        target:       'http://localhost:3000',
         changeOrigin: true,
-        secure: false,
+        secure:       false,
+      },
+      // ← NEW: forwards all /auth/* requests to backend
+      '/auth': {
+        target:       'http://localhost:3000',
+        changeOrigin: true,
+        secure:       false,
       },
     },
   },
 })
+

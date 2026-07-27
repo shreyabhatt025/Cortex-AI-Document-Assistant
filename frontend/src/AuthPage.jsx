@@ -1,6 +1,6 @@
 // AuthPage.jsx
-// full authentication page for Cortex
-// handles: login, signup, verify-pending screen, auto email verification
+// handles: login, signup, verify-pending, verify-success, verify-failed,
+//          forgot-password, reset-password  ← NEW screens
 
 import { useState, useEffect } from 'react'
 
@@ -48,8 +48,16 @@ function AlertIcon() {
     </svg>
   )
 }
+function LockIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  )
+}
 
-// ── Input Field Component ─────────────────────────────────────────────────────
+// ── Reusable input field ──────────────────────────────────────────────────────
 function Field({ label, type, value, onChange, placeholder, rightElement }) {
   return (
     <div className="auth-field">
@@ -63,73 +71,77 @@ function Field({ label, type, value, onChange, placeholder, rightElement }) {
           placeholder={placeholder}
           autoComplete={type === 'password' ? 'current-password' : type === 'email' ? 'email' : 'off'}
         />
-        {rightElement && (
-          <div className="auth-input-right">{rightElement}</div>
-        )}
+        {rightElement && <div className="auth-input-right">{rightElement}</div>}
       </div>
     </div>
   )
 }
 
 // ── Main AuthPage ─────────────────────────────────────────────────────────────
-export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
+// screens:
+//   'form'            → login / signup tabs
+//   'verify-pending'  → after signup, waiting for email click
+//   'verifying'       → auto-verifying ?verify= token from URL
+//   'verify-success'  → email verified
+//   'verify-failed'   → token expired or invalid
+//   'forgot'          → enter email to get reset link     ← NEW
+//   'forgot-sent'     → reset email sent confirmation     ← NEW
+//   'reset'           → enter new password (from ?reset=) ← NEW
+//   'reset-success'   → password changed successfully     ← NEW
 
-  // which tab is active
-  const [tab, setTab] = useState('login')
+export default function AuthPage({ onAuth, onBack, initialVerifyToken, initialResetToken }) {
 
-  // which screen to show
-  // 'form'           → login / signup form
-  // 'verify-pending' → after signup, waiting for user to click email link
-  // 'verifying'      → auto-verifying token from URL
-  // 'verify-success' → email verified successfully
-  // 'verify-failed'  → token expired or invalid
-  const [screen, setScreen] = useState(
-    initialVerifyToken ? 'verifying' : 'form'
-  )
+  const [tab,          setTab]          = useState('login')
+  const [screen,       setScreen]       = useState(() => {
+    if (initialResetToken)  return 'reset'
+    if (initialVerifyToken) return 'verifying'
+    return 'form'
+  })
 
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState('')
   const [success,      setSuccess]      = useState('')
   const [pendingEmail, setPendingEmail] = useState('')
 
-  // show/hide password toggles
-  const [showPass,    setShowPass]    = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
+  // show/hide password
+  const [showPass,       setShowPass]       = useState(false)
+  const [showConfirm,    setShowConfirm]    = useState(false)
+  const [showNewPass,    setShowNewPass]    = useState(false)
+  const [showNewConfirm, setShowNewConfirm] = useState(false)
 
-  // login form state
+  // login form
   const [loginEmail,    setLoginEmail]    = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
-  // signup form state
+  // signup form
   const [signupName,     setSignupName]     = useState('')
   const [signupEmail,    setSignupEmail]    = useState('')
   const [signupPassword, setSignupPassword] = useState('')
   const [signupConfirm,  setSignupConfirm]  = useState('')
 
-  // clear error when switching tabs
+  // forgot password form
+  const [forgotEmail,   setForgotEmail]   = useState('')
+
+  // reset password form
+  const [newPassword,   setNewPassword]   = useState('')
+  const [newConfirm,    setNewConfirm]    = useState('')
+
   useEffect(() => { setError(''); setSuccess('') }, [tab])
 
-  // ── auto-verify token from URL on mount ─────────────────────────────────
+  // ── Auto-verify email token ───────────────────────────────────────────────
   useEffect(() => {
-    if (initialVerifyToken) {
-      handleVerifyToken(initialVerifyToken)
-    }
+    if (initialVerifyToken) handleVerifyToken(initialVerifyToken)
   }, [initialVerifyToken])
 
-  // ── verify email token ───────────────────────────────────────────────────
   const handleVerifyToken = async (token) => {
     setScreen('verifying')
     setLoading(true)
     try {
       const res  = await fetch(`/auth/verify/${token}`)
       const data = await res.json()
-
-      // clear the ?verify= from the URL so refresh doesn't re-trigger
       window.history.replaceState({}, '', window.location.pathname)
-
-      if (res.ok) {
-        setScreen('verify-success')
-      } else {
+      if (res.ok) { setScreen('verify-success') }
+      else {
         setError(data.error || 'Verification failed.')
         if (data.email) setPendingEmail(data.email)
         setScreen('verify-failed')
@@ -137,120 +149,116 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
     } catch {
       setError('Connection error. Make sure the backend is running.')
       setScreen('verify-failed')
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
-  // ── login ────────────────────────────────────────────────────────────────
+  // ── Login ─────────────────────────────────────────────────────────────────
   const handleLogin = async (e) => {
     e.preventDefault()
     if (!loginEmail.trim() || !loginPassword) {
-      setError('Please enter your email and password.')
-      return
+      setError('Please enter your email and password.'); return
     }
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       const res  = await fetch('/auth/login', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: loginEmail, password: loginPassword }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
       })
       const data = await res.json()
-
       if (res.ok) {
-        // pass user info + token up to App.jsx
         onAuth(data.user, data.token)
       } else {
-        setError(data.error || 'Login failed. Please try again.')
-        // if unverified, show resend option
-        if (data.canResend && data.email) {
-          setPendingEmail(data.email)
-        }
+        setError(data.error || 'Login failed.')
+        if (data.canResend && data.email) setPendingEmail(data.email)
       }
-    } catch {
-      setError('Cannot reach server. Is the backend running on port 3000?')
-    } finally {
-      setLoading(false)
-    }
+    } catch { setError('Cannot reach server. Is the backend running on port 3000?') }
+    finally { setLoading(false) }
   }
 
-  // ── signup ───────────────────────────────────────────────────────────────
+  // ── Signup ────────────────────────────────────────────────────────────────
   const handleSignup = async (e) => {
     e.preventDefault()
-
-    // client-side validation
     if (!signupName.trim() || !signupEmail.trim() || !signupPassword || !signupConfirm) {
-      setError('Please fill in all fields.')
-      return
+      setError('Please fill in all fields.'); return
     }
-    if (signupPassword.length < 6) {
-      setError('Password must be at least 6 characters.')
-      return
-    }
-    if (signupPassword !== signupConfirm) {
-      setError('Passwords do not match.')
-      return
-    }
+    if (signupPassword.length < 6) { setError('Password must be at least 6 characters.'); return }
+    if (signupPassword !== signupConfirm) { setError('Passwords do not match.'); return }
 
-    setLoading(true)
-    setError('')
-
+    setLoading(true); setError('')
     try {
       const res  = await fetch('/auth/register', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          name:     signupName.trim(),
-          email:    signupEmail.trim(),
-          password: signupPassword,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: signupName.trim(), email: signupEmail.trim(), password: signupPassword }),
       })
       const data = await res.json()
-
-      if (res.ok) {
-        setPendingEmail(signupEmail.trim())
-        setScreen('verify-pending')
-      } else {
-        setError(data.error || 'Registration failed. Please try again.')
-        if (data.canResend && data.email) {
-          setPendingEmail(data.email)
-        }
+      if (res.ok) { setPendingEmail(signupEmail.trim()); setScreen('verify-pending') }
+      else {
+        setError(data.error || 'Registration failed.')
+        if (data.canResend && data.email) setPendingEmail(data.email)
       }
-    } catch {
-      setError('Cannot reach server. Is the backend running on port 3000?')
-    } finally {
-      setLoading(false)
-    }
+    } catch { setError('Cannot reach server. Is the backend running on port 3000?') }
+    finally { setLoading(false) }
   }
 
-  // ── resend verification email ─────────────────────────────────────────────
+  // ── Resend verification ───────────────────────────────────────────────────
   const handleResend = async () => {
     if (!pendingEmail) return
-    setLoading(true)
-    setError('')
-    setSuccess('')
+    setLoading(true); setError(''); setSuccess('')
     try {
       const res  = await fetch('/auth/resend', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: pendingEmail }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail }),
       })
       const data = await res.json()
-      if (res.ok) {
-        setSuccess('Verification email sent! Check your inbox.')
-      } else {
-        setError(data.error || 'Could not resend email.')
-      }
-    } catch {
-      setError('Connection error.')
-    } finally {
-      setLoading(false)
-    }
+      if (res.ok) setSuccess('Verification email sent! Check your inbox.')
+      else setError(data.error || 'Could not resend email.')
+    } catch { setError('Connection error.') }
+    finally { setLoading(false) }
   }
 
-  // ── SCREEN: verifying (auto-checking token from URL) ─────────────────────
+  // ── Forgot password ───────────────────────────────────────────────────────
+  const handleForgot = async (e) => {
+    e.preventDefault()
+    if (!forgotEmail.trim()) { setError('Please enter your email address.'); return }
+    setLoading(true); setError('')
+    try {
+      const res  = await fetch('/auth/forgot-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      })
+      const data = await res.json()
+      if (res.ok) { setPendingEmail(forgotEmail.trim()); setScreen('forgot-sent') }
+      else setError(data.error || 'Something went wrong.')
+    } catch { setError('Cannot reach server. Is the backend running on port 3000?') }
+    finally { setLoading(false) }
+  }
+
+  // ── Reset password ────────────────────────────────────────────────────────
+  const handleReset = async (e) => {
+    e.preventDefault()
+    if (!newPassword || !newConfirm) { setError('Please fill in both fields.'); return }
+    if (newPassword.length < 6) { setError('Password must be at least 6 characters.'); return }
+    if (newPassword !== newConfirm) { setError('Passwords do not match.'); return }
+
+    setLoading(true); setError('')
+    try {
+      const res  = await fetch('/auth/reset-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: initialResetToken, password: newPassword }),
+      })
+      const data = await res.json()
+      // clear ?reset= from URL
+      window.history.replaceState({}, '', window.location.pathname)
+      if (res.ok) { setScreen('reset-success') }
+      else {
+        setError(data.error || 'Reset failed.')
+        if (data.canRetry) setScreen('forgot') // token expired → send new link
+      }
+    } catch { setError('Cannot reach server. Is the backend running on port 3000?') }
+    finally { setLoading(false) }
+  }
+
+  // ── SCREEN: verifying ─────────────────────────────────────────────────────
   if (screen === 'verifying') {
     return (
       <div className="auth-page">
@@ -274,13 +282,8 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
           <div className="auth-status-screen">
             <div className="auth-status-icon success"><CheckCircle /></div>
             <h2 className="auth-status-title">Email verified!</h2>
-            <p className="auth-status-desc">
-              Your account is now active. You can sign in.
-            </p>
-            <button
-              className="auth-submit-btn"
-              onClick={() => { setScreen('form'); setTab('login') }}
-            >
+            <p className="auth-status-desc">Your account is now active. You can sign in.</p>
+            <button className="auth-submit-btn" onClick={() => { setScreen('form'); setTab('login') }}>
               Go to Login
             </button>
           </div>
@@ -300,19 +303,12 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
             <h2 className="auth-status-title">Verification failed</h2>
             <p className="auth-status-desc">{error}</p>
             {pendingEmail && (
-              <button
-                className="auth-resend-btn"
-                onClick={handleResend}
-                disabled={loading}
-              >
+              <button className="auth-resend-btn" onClick={handleResend} disabled={loading}>
                 {loading ? 'Sending…' : 'Send a new verification link'}
               </button>
             )}
             {success && <p className="auth-success-msg">{success}</p>}
-            <button
-              className="auth-back-link"
-              onClick={() => { setScreen('form'); setTab('login'); setError('') }}
-            >
+            <button className="auth-back-link" onClick={() => { setScreen('form'); setTab('login'); setError('') }}>
               Back to login
             </button>
           </div>
@@ -321,7 +317,7 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
     )
   }
 
-  // ── SCREEN: verify-pending (after signup) ─────────────────────────────────
+  // ── SCREEN: verify-pending ────────────────────────────────────────────────
   if (screen === 'verify-pending') {
     return (
       <div className="auth-page">
@@ -330,39 +326,183 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
           <div className="auth-status-screen">
             <div className="auth-status-icon pending"><MailIcon /></div>
             <h2 className="auth-status-title">Check your inbox</h2>
-            <p className="auth-status-desc">
-              We sent a verification link to:
-            </p>
+            <p className="auth-status-desc">We sent a verification link to:</p>
             <div className="auth-email-badge">{pendingEmail}</div>
             <p className="auth-status-desc" style={{ marginTop: 0 }}>
-              Click the link in the email to activate your account.
-              The link expires in 24 hours.
+              Click the link in the email to activate your account. The link expires in 24 hours.
             </p>
-
             <div className="auth-divider-line" />
-
             <p className="auth-resend-note">Didn't get the email?</p>
-
             {success
               ? <p className="auth-success-msg">{success}</p>
-              : (
-                <button
-                  className="auth-resend-btn"
-                  onClick={handleResend}
-                  disabled={loading}
-                >
+              : <button className="auth-resend-btn" onClick={handleResend} disabled={loading}>
                   {loading ? 'Sending…' : 'Resend verification email'}
                 </button>
-              )
             }
-
             {error && <p className="auth-error-msg">{error}</p>}
-
-            <button
-              className="auth-back-link"
-              onClick={() => { setScreen('form'); setTab('login') }}
-            >
+            <button className="auth-back-link" onClick={() => { setScreen('form'); setTab('login') }}>
               <ArrowLeft /> Back to login
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── SCREEN: forgot ────────────────────────────────────────────────────────
+  if (screen === 'forgot') {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-card-top">
+            <button className="auth-back-btn" onClick={() => { setScreen('form'); setError('') }}>
+              <ArrowLeft /> Back
+            </button>
+            <div className="auth-card-logo">C</div>
+          </div>
+
+          <h1 className="auth-card-title">Forgot password?</h1>
+          <p className="auth-card-sub">Enter your email and we'll send you a reset link.</p>
+
+          {error && <div className="auth-error-box"><span>{error}</span></div>}
+
+          <form className="auth-form" onSubmit={handleForgot} noValidate>
+            <Field
+              label="Email address"
+              type="email"
+              value={forgotEmail}
+              onChange={e => setForgotEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+            <button type="submit" className="auth-submit-btn" disabled={loading}>
+              {loading ? <span className="auth-btn-spin" /> : 'Send Reset Link'}
+            </button>
+          </form>
+
+          <p className="auth-switch">
+            Remember your password?{' '}
+            <button className="auth-switch-btn" onClick={() => { setScreen('form'); setTab('login'); setError('') }}>
+              Sign in
+            </button>
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── SCREEN: forgot-sent ───────────────────────────────────────────────────
+  if (screen === 'forgot-sent') {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-card-logo">C</div>
+          <div className="auth-status-screen">
+            <div className="auth-status-icon pending"><MailIcon /></div>
+            <h2 className="auth-status-title">Check your inbox</h2>
+            <p className="auth-status-desc">
+              If <strong>{pendingEmail}</strong> is registered, we've sent a password reset link.
+            </p>
+            <p className="auth-status-desc" style={{ marginTop: 0, fontSize: '12.5px' }}>
+              The link expires in 1 hour. Check your spam folder if you don't see it.
+            </p>
+            <div className="auth-divider-line" />
+            <p className="auth-resend-note">Didn't get it?</p>
+            {success
+              ? <p className="auth-success-msg">{success}</p>
+              : <button
+                  className="auth-resend-btn"
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true); setError(''); setSuccess('')
+                    try {
+                      const res  = await fetch('/auth/forgot-password', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: pendingEmail }),
+                      })
+                      const data = await res.json()
+                      if (res.ok) setSuccess('Reset link sent again!')
+                      else setError(data.error || 'Could not resend.')
+                    } catch { setError('Connection error.') }
+                    finally { setLoading(false) }
+                  }}
+                >
+                  {loading ? 'Sending…' : 'Resend reset email'}
+                </button>
+            }
+            {error && <p className="auth-error-msg">{error}</p>}
+            <button className="auth-back-link" onClick={() => { setScreen('form'); setTab('login') }}>
+              <ArrowLeft /> Back to login
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── SCREEN: reset ─────────────────────────────────────────────────────────
+  if (screen === 'reset') {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-card-logo">C</div>
+          <div className="auth-status-icon pending" style={{ alignSelf: 'center' }}>
+            <LockIcon />
+          </div>
+          <h1 className="auth-card-title" style={{ textAlign: 'center' }}>Set new password</h1>
+          <p className="auth-card-sub" style={{ textAlign: 'center' }}>
+            Choose a strong password for your account.
+          </p>
+
+          {error && <div className="auth-error-box"><span>{error}</span></div>}
+
+          <form className="auth-form" onSubmit={handleReset} noValidate>
+            <Field
+              label="New Password"
+              type={showNewPass ? 'text' : 'password'}
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="Min. 6 characters"
+              rightElement={
+                <button type="button" className="toggle-pass" onClick={() => setShowNewPass(p => !p)} tabIndex={-1}>
+                  {showNewPass ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              }
+            />
+            <Field
+              label="Confirm New Password"
+              type={showNewConfirm ? 'text' : 'password'}
+              value={newConfirm}
+              onChange={e => setNewConfirm(e.target.value)}
+              placeholder="Repeat new password"
+              rightElement={
+                <button type="button" className="toggle-pass" onClick={() => setShowNewConfirm(p => !p)} tabIndex={-1}>
+                  {showNewConfirm ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              }
+            />
+            <button type="submit" className="auth-submit-btn" disabled={loading}>
+              {loading ? <span className="auth-btn-spin" /> : 'Reset Password'}
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
+  // ── SCREEN: reset-success ─────────────────────────────────────────────────
+  if (screen === 'reset-success') {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-card-logo">C</div>
+          <div className="auth-status-screen">
+            <div className="auth-status-icon success"><CheckCircle /></div>
+            <h2 className="auth-status-title">Password updated!</h2>
+            <p className="auth-status-desc">
+              Your password has been reset successfully. You can now sign in with your new password.
+            </p>
+            <button className="auth-submit-btn" onClick={() => { setScreen('form'); setTab('login') }}>
+              Go to Login
             </button>
           </div>
         </div>
@@ -375,7 +515,6 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
     <div className="auth-page">
       <div className="auth-card">
 
-        {/* Logo + back button */}
         <div className="auth-card-top">
           <button className="auth-back-btn" onClick={onBack}>
             <ArrowLeft /> Back
@@ -387,44 +526,26 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
           {tab === 'login' ? 'Welcome back' : 'Create your account'}
         </h1>
         <p className="auth-card-sub">
-          {tab === 'login'
-            ? 'Sign in to continue to Cortex'
-            : 'Start querying your documents in minutes'
-          }
+          {tab === 'login' ? 'Sign in to continue to Cortex' : 'Start querying your documents in minutes'}
         </p>
 
-        {/* Tabs */}
         <div className="auth-tabs">
-          <button
-            className={`auth-tab${tab === 'login' ? ' auth-tab-active' : ''}`}
-            onClick={() => setTab('login')}
-          >
-            Login
-          </button>
-          <button
-            className={`auth-tab${tab === 'signup' ? ' auth-tab-active' : ''}`}
-            onClick={() => setTab('signup')}
-          >
-            Sign Up
-          </button>
+          <button className={`auth-tab${tab === 'login'  ? ' auth-tab-active' : ''}`} onClick={() => setTab('login')}>Login</button>
+          <button className={`auth-tab${tab === 'signup' ? ' auth-tab-active' : ''}`} onClick={() => setTab('signup')}>Sign Up</button>
         </div>
 
-        {/* Error message */}
         {error && (
           <div className="auth-error-box">
             <span>{error}</span>
             {pendingEmail && (
-              <button
-                className="auth-error-resend"
-                onClick={() => { setScreen('verify-pending') }}
-              >
+              <button className="auth-error-resend" onClick={() => setScreen('verify-pending')}>
                 Resend link →
               </button>
             )}
           </div>
         )}
 
-        {/* ── LOGIN FORM ─────────────────────────────────────────────────── */}
+        {/* ── LOGIN FORM ──────────────────────────────────────────────────── */}
         {tab === 'login' && (
           <form className="auth-form" onSubmit={handleLogin} noValidate>
             <Field
@@ -434,103 +555,75 @@ export default function AuthPage({ onAuth, onBack, initialVerifyToken }) {
               onChange={e => setLoginEmail(e.target.value)}
               placeholder="you@example.com"
             />
-            <Field
-              label="Password"
-              type={showPass ? 'text' : 'password'}
-              value={loginPassword}
-              onChange={e => setLoginPassword(e.target.value)}
-              placeholder="Enter your password"
-              rightElement={
+            <div className="auth-field">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label className="auth-label">Password</label>
+                {/* Forgot password link */}
                 <button
                   type="button"
-                  className="toggle-pass"
-                  onClick={() => setShowPass(p => !p)}
-                  tabIndex={-1}
+                  className="auth-forgot-link"
+                  onClick={() => { setScreen('forgot'); setForgotEmail(loginEmail); setError('') }}
                 >
-                  {showPass ? <EyeOffIcon /> : <EyeIcon />}
+                  Forgot password?
                 </button>
-              }
-            />
-            <button
-              type="submit"
-              className="auth-submit-btn"
-              disabled={loading}
-            >
+              </div>
+              <div className="auth-input-wrap">
+                <input
+                  className="auth-input"
+                  type={showPass ? 'text' : 'password'}
+                  value={loginPassword}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                />
+                <div className="auth-input-right">
+                  <button type="button" className="toggle-pass" onClick={() => setShowPass(p => !p)} tabIndex={-1}>
+                    {showPass ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button type="submit" className="auth-submit-btn" disabled={loading}>
               {loading ? <span className="auth-btn-spin" /> : 'Sign In'}
             </button>
           </form>
         )}
 
-        {/* ── SIGNUP FORM ────────────────────────────────────────────────── */}
+        {/* ── SIGNUP FORM ─────────────────────────────────────────────────── */}
         {tab === 'signup' && (
           <form className="auth-form" onSubmit={handleSignup} noValidate>
+            <Field label="Full Name" type="text" value={signupName} onChange={e => setSignupName(e.target.value)} placeholder="John Doe" />
+            <Field label="Email" type="email" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} placeholder="you@example.com" />
             <Field
-              label="Full Name"
-              type="text"
-              value={signupName}
-              onChange={e => setSignupName(e.target.value)}
-              placeholder="John Doe"
-            />
-            <Field
-              label="Email"
-              type="email"
-              value={signupEmail}
-              onChange={e => setSignupEmail(e.target.value)}
-              placeholder="you@example.com"
-            />
-            <Field
-              label="Password"
-              type={showPass ? 'text' : 'password'}
-              value={signupPassword}
-              onChange={e => setSignupPassword(e.target.value)}
+              label="Password" type={showPass ? 'text' : 'password'}
+              value={signupPassword} onChange={e => setSignupPassword(e.target.value)}
               placeholder="Min. 6 characters"
               rightElement={
-                <button
-                  type="button"
-                  className="toggle-pass"
-                  onClick={() => setShowPass(p => !p)}
-                  tabIndex={-1}
-                >
+                <button type="button" className="toggle-pass" onClick={() => setShowPass(p => !p)} tabIndex={-1}>
                   {showPass ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               }
             />
             <Field
-              label="Confirm Password"
-              type={showConfirm ? 'text' : 'password'}
-              value={signupConfirm}
-              onChange={e => setSignupConfirm(e.target.value)}
+              label="Confirm Password" type={showConfirm ? 'text' : 'password'}
+              value={signupConfirm} onChange={e => setSignupConfirm(e.target.value)}
               placeholder="Repeat your password"
               rightElement={
-                <button
-                  type="button"
-                  className="toggle-pass"
-                  onClick={() => setShowConfirm(p => !p)}
-                  tabIndex={-1}
-                >
+                <button type="button" className="toggle-pass" onClick={() => setShowConfirm(p => !p)} tabIndex={-1}>
                   {showConfirm ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               }
             />
-            <button
-              type="submit"
-              className="auth-submit-btn"
-              disabled={loading}
-            >
+            <button type="submit" className="auth-submit-btn" disabled={loading}>
               {loading ? <span className="auth-btn-spin" /> : 'Create Account'}
             </button>
           </form>
         )}
 
-        {/* Switch tab hint */}
         <p className="auth-switch">
           {tab === 'login'
-            ? <>Don't have an account?{' '}
-                <button className="auth-switch-btn" onClick={() => setTab('signup')}>Sign up</button>
-              </>
-            : <>Already have an account?{' '}
-                <button className="auth-switch-btn" onClick={() => setTab('login')}>Log in</button>
-              </>
+            ? <>Don't have an account?{' '}<button className="auth-switch-btn" onClick={() => setTab('signup')}>Sign up</button></>
+            : <>Already have an account?{' '}<button className="auth-switch-btn" onClick={() => setTab('login')}>Log in</button></>
           }
         </p>
       </div>

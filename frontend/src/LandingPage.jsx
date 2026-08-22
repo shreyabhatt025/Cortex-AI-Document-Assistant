@@ -110,8 +110,7 @@ export default function LandingPage({ onGetStarted, darkMode, toggleDarkMode }) 
       <section className="hero-section">
         <div className="hero-left">
           <div className="hero-kicker">
-            <span className="kicker-dot" />
-            RAG · MongoDB · Groq · React
+          
           </div>
 
           <h1 className="hero-h1">
@@ -134,9 +133,7 @@ export default function LandingPage({ onGetStarted, darkMode, toggleDarkMode }) 
             </button>
           </div>
 
-          <p className="hero-note">
-            No credit card. No setup. Just upload a PDF and start asking.
-          </p>
+        
         </div>
 
         <div className="hero-right">
@@ -144,20 +141,12 @@ export default function LandingPage({ onGetStarted, darkMode, toggleDarkMode }) 
         </div>
       </section>
 
-      {/* ── Stack strip ──────────────────────────────────────────────────── */}
-      <div className="stack-strip">
-        <span className="stack-label">Built with</span>
-        {['MongoDB Atlas', 'Groq LLM', 'React + Vite', 'Node.js', 'Local Embeddings', 'SSE Streaming'].map(t => (
-          <span key={t} className="stack-tag">{t}</span>
-        ))}
-      </div>
-
       {/* ── How it works ─────────────────────────────────────────────────── */}
       <section id="how" className="how-section">
         <div className="how-inner">
           <div className="how-header">
             <h2 className="how-title">How it works</h2>
-            <p className="how-sub">Four steps. No nonsense.</p>
+            <p className="how-sub">Four steps.</p>
           </div>
 
           <div className="steps-list">
@@ -205,28 +194,7 @@ export default function LandingPage({ onGetStarted, darkMode, toggleDarkMode }) 
         </div>
       </section>
 
-      {/* ── Features ─────────────────────────────────────────────────────── */}
-      <section className="feat-section">
-        <div className="feat-inner">
-          <h2 className="feat-title">What Cortex does</h2>
-          <div className="feat-grid">
-            {[
-              { icon: '📄', title: 'PDF Upload & Parsing',    desc: 'Handles any text-based PDF. Extracts clean text, chunks it, embeds it.' },
-              { icon: '🔍', title: 'Semantic Search',         desc: 'Not keyword matching. Finds chunks that mean the same thing as your question.' },
-              { icon: '⚡', title: 'Streaming Answers',       desc: 'Words appear as Groq generates them. No waiting for the full response.' },
-              { icon: '📎', title: 'Source Citations',        desc: 'Every answer shows which chunk it came from and the relevance score.' },
-              { icon: '💾', title: 'Chat History',            desc: "Your conversation is saved in localStorage. Refresh and it's still there." },
-              { icon: '🔐', title: 'Email Authentication',    desc: 'Proper signup, login, and email verification. JWT-protected routes.' },
-            ].map(f => (
-              <div key={f.title} className="feat-card">
-                <span className="feat-icon">{f.icon}</span>
-                <h3 className="feat-name">{f.title}</h3>
-                <p className="feat-desc">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+     
 
       {/* ── CTA ──────────────────────────────────────────────────────────── */}
       <section className="bottom-cta">

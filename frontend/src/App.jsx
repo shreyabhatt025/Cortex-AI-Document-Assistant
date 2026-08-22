@@ -474,15 +474,6 @@ export default function App() {
             </button>
           </div>
 
-          <div className="status">
-            <span className="status-dot" />
-            <span>Backend · Port 3000</span>
-          </div>
-          <div className="tech-row">
-            <span className="tech-badge">Groq</span>
-            <span className="tech-badge">MongoDB</span>
-            <span className="tech-badge">RAG</span>
-          </div>
         </div>
       </aside>
 
@@ -503,9 +494,6 @@ export default function App() {
                     <TrashIcon /><span>Clear</span>
                   </button>
                 )}
-                <div className="model-pill">
-                  <span className="model-dot" />Groq · Streaming
-                </div>
               </div>
             </div>
 

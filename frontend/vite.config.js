@@ -22,7 +22,18 @@ export default defineConfig({
         changeOrigin: true,
         secure:       false,
       },
+      // ← NEW: chat history — list/create/rename/pin/delete/share
+      '/chats': {
+        target:       'http://localhost:3000',
+        changeOrigin: true,
+        secure:       false,
+      },
+      // ← NEW: public read-only view of a shared chat link
+      '/shared': {
+        target:       'http://localhost:3000',
+        changeOrigin: true,
+        secure:       false,
+      },
     },
   },
 })
-

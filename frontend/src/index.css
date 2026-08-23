@@ -1,5 +1,5 @@
 /* ── Fonts ─────────────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 /* ══════════════════════════════════════════════════════════════════════════════
    DESIGN TOKENS — Dark mode (default)
@@ -12,7 +12,7 @@
   --bg-surface:   #14161F;
   --bg-surface-2: #1A1D28;
   --bg-input:     #14161F;
-  --bg-nav:       rgba(12, 13, 17, 0.85);
+  --bg-nav:       #0C0D11;
 
   /* Borders */
   --border-faint:  #1C1F2D;
@@ -25,12 +25,12 @@
   --text-3: #4E5370;
   --text-4: #30344A;
 
-  /* Accent — indigo */
-  --accent:        #7C83F5;
-  --accent-hover:  #9199F7;
-  --accent-dim:    rgba(124, 131, 245, 0.12);
-  --accent-border: rgba(124, 131, 245, 0.22);
-  --accent-glow:   rgba(124, 131, 245, 0.06);
+  /* Accent — blue */
+  --accent:        #2563EB;
+  --accent-hover:  #3B76F0;
+  --accent-dim:    rgba(37, 99, 235, 0.12);
+  --accent-border: rgba(37, 99, 235, 0.24);
+  --accent-glow:   rgba(37, 99, 235, 0.06);
 
   /* User / teal */
   --user-bg:     rgba(45, 183, 153, 0.07);
@@ -46,12 +46,12 @@
   --hero-bg:      #080910;
   --card-bg:      rgba(20, 22, 31, 0.6);
   --card-border:  rgba(255, 255, 255, 0.06);
-  --glow-1:       rgba(124, 131, 245, 0.18);
-  --glow-2:       rgba(139, 92, 246, 0.12);
+  --glow-1:       rgba(37, 99, 235, 0.16);
+  --glow-2:       rgba(59, 130, 246, 0.10);
   --grid-color:   rgba(255, 255, 255, 0.025);
 
   /* Typography */
-  --sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
   --mono: 'IBM Plex Mono', 'Fira Code', monospace;
 
   /* Radii */
@@ -74,7 +74,7 @@
   --bg-surface:   #FFFFFF;
   --bg-surface-2: #F0F0F5;
   --bg-input:     #FFFFFF;
-  --bg-nav:       rgba(255, 255, 255, 0.88);
+  --bg-nav:       #FFFFFF;
 
   --border-faint:  #E8E8EF;
   --border-soft:   #DDDDE8;
@@ -85,9 +85,9 @@
   --text-3: #9898B0;
   --text-4: #C0C0D0;
 
-  --accent-dim:    rgba(124, 131, 245, 0.08);
-  --accent-border: rgba(124, 131, 245, 0.20);
-  --accent-glow:   rgba(124, 131, 245, 0.05);
+  --accent-dim:    rgba(37, 99, 235, 0.08);
+  --accent-border: rgba(37, 99, 235, 0.22);
+  --accent-glow:   rgba(37, 99, 235, 0.05);
 
   --user-bg:     rgba(45, 183, 153, 0.06);
   --user-border: rgba(45, 183, 153, 0.20);
@@ -138,8 +138,6 @@ a { text-decoration: none; color: inherit; }
   top: 0; left: 0; right: 0;
   z-index: 50;
   background: var(--bg-nav);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid transparent;
   transition: border-color var(--ease), box-shadow var(--ease);
 }
@@ -339,10 +337,7 @@ a { text-decoration: none; color: inherit; }
 
 .headline-accent {
   display: block;
-  background: linear-gradient(135deg, var(--accent) 0%, #a78bfa 60%, #818cf8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent);
 }
 
 .hero-sub {
@@ -487,7 +482,6 @@ a { text-decoration: none; color: inherit; }
   padding: 28px 24px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -556,7 +550,6 @@ a { text-decoration: none; color: inherit; }
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--r-lg);
-  backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -647,7 +640,6 @@ a { text-decoration: none; color: inherit; }
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--r-md);
-  backdrop-filter: blur(12px);
   transition: border-color var(--ease);
 }
 
@@ -688,7 +680,6 @@ a { text-decoration: none; color: inherit; }
   background: var(--card-bg);
   border: 1px solid var(--accent-border);
   border-radius: var(--r-xl);
-  backdrop-filter: blur(16px);
   overflow: hidden;
 }
 
@@ -811,7 +802,6 @@ a { text-decoration: none; color: inherit; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.65);
-  backdrop-filter: blur(6px);
   z-index: 200;
   animation: fadeIn 0.18s ease;
 }
@@ -1397,8 +1387,8 @@ a { text-decoration: none; color: inherit; }
 /* ── Source Drawer ───────────────────────────────────────────────────────────*/
 .drawer-backdrop {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
   z-index: 100; animation: fadeIn 0.18s ease;
+  background: rgba(0,0,0,0.55);
 }
 
 .drawer {
@@ -2061,7 +2051,6 @@ a { text-decoration: none; color: inherit; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(4px);
   z-index: 200;
   animation: fadeIn 0.15s ease;
 }
@@ -2609,4 +2598,220 @@ a { text-decoration: none; color: inherit; }
 .auth-verifying-text {
   font-size: 14px;
   color: var(--text-2);
+}
+/* ══════════════════════════════════════════════════════════════════════════════
+   CHAT HISTORY — sidebar chat list (pin / rename / delete / share)
+══════════════════════════════════════════════════════════════════════════════ */
+
+/* nav was `flex: 1` in the base sidebar rules above — override so the
+   chat list gets the flexible space instead, and nav stays a fixed
+   two-item block up top. */
+.nav { flex: 0 0 auto; }
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 11px;
+  margin: 4px 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border-medium);
+  background: var(--bg-surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  transition: all var(--ease);
+}
+.new-chat-btn:hover {
+  border-color: var(--accent-border);
+  border-style: solid;
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.chat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.chat-list::-webkit-scrollbar { width: 5px; }
+.chat-list::-webkit-scrollbar-thumb { background: var(--border-medium); border-radius: 3px; }
+.chat-list::-webkit-scrollbar-track { background: transparent; }
+
+.chat-list-empty {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 8px 6px;
+  line-height: 1.5;
+}
+
+.chat-item-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-sm);
+  transition: background var(--ease);
+}
+.chat-item-row:hover { background: var(--bg-surface); }
+.chat-item-row-active {
+  background: var(--accent-dim) !important;
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.chat-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 11px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-align: left;
+}
+.chat-item-row-active .chat-item { color: var(--accent); }
+
+.chat-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* pin icon shown inline before the title, when pinned — separate
+   from the pin action button in .chat-item-actions */
+.chat-item > svg { flex-shrink: 0; color: var(--accent); }
+
+.chat-item-actions {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  padding-right: 4px;
+  flex-shrink: 0;
+}
+.chat-item-row:hover .chat-item-actions,
+.chat-item-row-active .chat-item-actions {
+  display: flex;
+}
+
+.chat-action-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: all var(--ease);
+}
+.chat-action-btn:hover { background: var(--bg-surface-2); color: var(--text-1); }
+.chat-action-danger:hover { color: var(--red); background: var(--red-dim); }
+
+.chat-rename-input {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 8px;
+  padding: 5px 8px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.share-toast {
+  position: absolute;
+  bottom: 74px;
+  left: 14px;
+  right: 14px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: var(--green-dim);
+  border: 1px solid rgba(52,211,153,0.25);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  z-index: 20;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SHARED CHAT — public, read-only view (no login, no sidebar)
+══════════════════════════════════════════════════════════════════════════════ */
+
+.shared-shell {
+  min-height: 100vh;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+}
+
+.shared-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+}
+
+.shared-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shared-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+}
+
+.shared-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 14px;
+  padding: 60px 20px;
+}
+.shared-state-error { color: var(--red); }
+
+.shared-body {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 24px 60px;
+}
+
+.shared-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-1);
+  margin-bottom: 24px;
+}
+
+/* non-interactive version of source-chip, used in the shared view
+   since there's no drawer state to open there */
+.source-chip-static {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: default;
 }

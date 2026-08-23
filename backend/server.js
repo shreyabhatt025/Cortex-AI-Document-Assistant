@@ -15,7 +15,11 @@ require('dotenv').config()
 // week 1 imports — ingestion pipeline
 const { parsePDF }             = require('./pdfParser')
 const { generateEmbedding }    = require('./embedder')
-const { connectDB, saveChunk, isDuplicatePDF } = require('./db')
+const {
+    connectDB, saveChunk, isDuplicatePDF,
+    // chat-session functions (added for chat history: pin / rename / delete / share)
+    createChat, appendMessages, getChatByShareId,
+} = require('./db')
 
 // phase 0 — replace the old character-based chunker with the new one
 // the old chunker.js file is still on disk but no longer called anywhere
@@ -37,6 +41,9 @@ const { generateAnswerStream } = require('./answerGenerator')
 // week 5 imports — authentication
 const authRoutes     = require('./routes/authRoutes')
 const authMiddleware = require('./middleware/authMiddleware')
+
+// chat history — list/create/rename/pin/delete/share for saved chats
+const chatRoutes      = require('./routes/chatRoutes')
 
 const app = express()
 app.use(express.json())
@@ -95,6 +102,35 @@ app.get('/', (req, res) => {
 // Auth routes — register, login, verify email, resend, forgot password, reset password.
 // All mounted under /auth so they don't conflict with the main routes.
 app.use('/auth', authRoutes)
+
+
+// Chat history routes — list, create, rename, pin, delete, share.
+// Protected: every route in chatRoutes.js requires a valid JWT.
+app.use('/chats', authMiddleware, chatRoutes)
+
+
+// GET /shared/:shareId
+// Public, read-only view of a shared chat. Deliberately NOT behind
+// authMiddleware — this is the whole point of a share link, anyone
+// with it can view without logging in. getChatByShareId() returns
+// null if the link was never created or has since been revoked
+// (DELETE /chats/:id/share sets shareId back to null).
+app.get('/shared/:shareId', async (req, res) => {
+    try {
+        const chat = await getChatByShareId(req.params.shareId)
+        if (!chat) {
+            return res.status(404).json({ error: 'this shared link is invalid or has been revoked' })
+        }
+        // only return what a public viewer should see — no userId, no _id churn.
+        res.json({
+            title:    chat.title,
+            messages: chat.messages,
+        })
+    } catch (error) {
+        console.log('error loading shared chat:', error.message)
+        res.status(500).json({ error: 'could not load shared chat', details: error.message })
+    }
+})
 
 
 // POST /upload
@@ -214,11 +250,13 @@ app.post('/upload', authMiddleware, upload.single('pdf'), async (req, res) => {
 
 // POST /ask
 // Employee sends a question and gets a streaming answer back via SSE.
-// This route is unchanged from week 4 — Phase 0 only touched the
-// ingestion side of the pipeline, not retrieval or generation.
+// body: { question, chatId? } — chatId is optional; if missing, a new
+// chat is created and its id is sent back via the [CHAT_ID] SSE event
+// so the frontend knows which chat this conversation now lives in.
 app.post('/ask', authMiddleware, async (req, res) => {
 
     const question = req.body.question
+    let   chatId   = req.body.chatId   // may be missing — frontend sends none for a brand-new chat
 
     if (!question || question.trim().length === 0) {
         return res.status(400).json({
@@ -230,11 +268,30 @@ app.post('/ask', authMiddleware, async (req, res) => {
     console.log('new question from:', req.user.email)
     console.log('question:', question)
 
+
+    // Chat history — if the frontend didn't pass a chatId (this is the
+    // first message of a brand-new conversation), create the chat now.
+    // We title it from the question itself so the sidebar shows
+    // something meaningful instead of "New chat" forever.
+    if (!chatId) {
+        const title = question.trim().slice(0, 60) + (question.trim().length > 60 ? '…' : '')
+        const chat  = await createChat(req.user.userId, title)
+        chatId = chat._id.toString()
+        console.log('created new chat:', chatId)
+    }
+
+
     // SSE headers must be set before we write any data.
     res.setHeader('Content-Type',  'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection',    'keep-alive')
     res.flushHeaders()
+
+    // Tell the frontend which chat this landed in. This matters most
+    // on a brand-new chat — the frontend didn't know chatId until now,
+    // since it was only just created above.
+    res.write(`data: [CHAT_ID]${chatId}\n\n`)
+    if (res.flush) res.flush()
 
     try {
 
@@ -293,6 +350,25 @@ app.post('/ask', authMiddleware, async (req, res) => {
 
         console.log('sources sent:', sources.map(s => s.file + ' chunk ' + s.chunkIndex).join(', '))
 
+
+        // Save this exchange to the chat's history. Done once here, after
+        // the full answer is known — not per-token during streaming —
+        // since writing to mongo on every streamed word would be slow
+        // and pointless (the user only cares about the finished message).
+        try {
+            await appendMessages(
+                chatId,
+                { id: `u-${Date.now()}`,     role: 'user',      text: question },
+                { id: `a-${Date.now() + 1}`, role: 'assistant', text: fullAnswer, sources },
+            )
+            console.log('chat history saved:', chatId)
+        } catch (saveError) {
+            // Don't fail the request over this — the user already has
+            // their answer on screen. Just log it so we notice if the
+            // save is silently failing every time.
+            console.log('warning: could not save chat history:', saveError.message)
+        }
+
     } catch (error) {
         console.log('error during streaming:', error.message)
         res.write(`data: ERROR: ${error.message}\n\n`)
@@ -327,5 +403,13 @@ connectDB().then(async () => {
         console.log('  POST /auth/reset-password  → set new password')
         console.log('  POST /upload            → upload PDF (protected)')
         console.log('  POST /ask               → ask question (protected)')
+        console.log('  GET  /chats             → list your chats (protected)')
+        console.log('  POST /chats             → create a new chat (protected)')
+        console.log('  GET  /chats/:id         → load one chat (protected)')
+        console.log('  PUT  /chats/:id         → rename / pin a chat (protected)')
+        console.log('  DELETE /chats/:id       → delete a chat (protected)')
+        console.log('  POST /chats/:id/share   → turn on a public share link (protected)')
+        console.log('  DELETE /chats/:id/share → turn off sharing (protected)')
+        console.log('  GET  /shared/:shareId   → view a shared chat (public)')
     })
 })

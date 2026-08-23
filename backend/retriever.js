@@ -40,6 +40,12 @@ async function searchSimilarChunks(queryVector, topK = 4) {
     // we just tell it: which field has vectors, 
     // what is our query vector, how many results to return
 
+    // timing starts right before the actual search call, and stops
+    // right after it resolves — this measures retrieval latency only,
+    // not embedding time (that happens before this function is called)
+    // and not the console.log calls below (those happen after).
+    const searchStartTime = Date.now()
+
     const results = await Chunk.aggregate([
         {
             $vectorSearch: {    // $vectorSearch is a special mongodb atlas operator , it does the similarity comparison internally
@@ -76,6 +82,9 @@ async function searchSimilarChunks(queryVector, topK = 4) {
         }
     ])
 
+    const searchElapsedMs = Date.now() - searchStartTime
+    console.log('vector search took', searchElapsedMs, 'ms')
+
     console.log('mongodb returned', results.length, 'relevant chunks')
 
     results.forEach((chunk, index) => {
@@ -87,4 +96,3 @@ async function searchSimilarChunks(queryVector, topK = 4) {
     return results// results is an array of chunk objects like:
 }
 module.exports = { searchSimilarChunks }
-

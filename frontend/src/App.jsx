@@ -3,7 +3,8 @@ import LandingPage from './LandingPage'
 import AuthPage    from './AuthPage'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const STORAGE_KEY      = 'cortex_chat_history'
+// NOTE: chat messages now live in MongoDB (see /chats routes), not
+// localStorage — each saved conversation is its own document there.
 const USER_STORAGE_KEY = 'cortex_user'
 const TOKEN_KEY        = 'cortex_token'
 const THEME_KEY        = 'cortex_theme'
@@ -30,15 +31,8 @@ function loadUser()  {
 function loadToken() {
   return localStorage.getItem(TOKEN_KEY) || null
 }
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return [WELCOME]
-    return JSON.parse(raw).map(m => ({ ...m, done: true }))
-  } catch { return [WELCOME] }
-}
 function loadDarkMode() {
-  return localStorage.getItem(THEME_KEY) !== 'light'
+  return localStorage.getItem(THEME_KEY) === 'dark'
 }
 
 // ── Rich text renderer ────────────────────────────────────────────────────────
@@ -132,6 +126,37 @@ function SignOutIcon() {
     </svg>
   )
 }
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  )
+}
+function PinIcon({ filled }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17h14l-1.4-1.4a2 2 0 0 1-.6-1.4V7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7.2a2 2 0 0 1-.6 1.4L5 17z" />
+    </svg>
+  )
+}
+function EditIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z" />
+    </svg>
+  )
+}
+function ShareIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+      <line x1="8.6" y1="10.6" x2="15.4" y2="6.4" /><line x1="8.6" y1="13.4" x2="15.4" y2="17.6" />
+    </svg>
+  )
+}
 
 // ── Source Drawer ─────────────────────────────────────────────────────────────
 function SourceDrawer({ source, onClose }) {
@@ -190,6 +215,88 @@ function UserAvatar({ user, size = 28 }) {
   )
 }
 
+// ── Shared (public, read-only) chat view ────────────────────────────────────
+// Rendered instead of the whole app when the URL has ?shared=SOME_ID.
+// No login required — this is the entire point of a share link.
+function SharedChatView({ shareId, darkMode, toggleDarkMode }) {
+  const [status, setStatus] = useState('loading') // loading | ok | error
+  const [chat,   setChat]   = useState(null)
+
+  useEffect(() => {
+    fetch(`/shared/${shareId}`)
+      .then(res => {
+        if (!res.ok) throw new Error('not found')
+        return res.json()
+      })
+      .then(data => { setChat(data); setStatus('ok') })
+      .catch(() => setStatus('error'))
+  }, [shareId])
+
+  return (
+    <div className="shared-shell">
+      <div className="shared-topbar">
+        <div className="brand">
+          <div className="brand-mark"><LogoIcon /></div>
+          <div className="brand-copy">
+            <span className="brand-name">Cortex</span>
+            <span className="brand-tagline">AI Assistant</span>
+          </div>
+        </div>
+        <div className="shared-topbar-right">
+          <span className="shared-badge">Shared conversation · Read-only</span>
+          <button className="theme-toggle-sm" onClick={toggleDarkMode} title="Toggle theme">
+            {darkMode ? <SunIcon /> : <MoonIcon />}
+          </button>
+        </div>
+      </div>
+
+      {status === 'loading' && <div className="shared-state">Loading conversation…</div>}
+
+      {status === 'error' && (
+        <div className="shared-state shared-state-error">
+          This link is invalid or has been revoked by its owner.
+        </div>
+      )}
+
+      {status === 'ok' && (
+        <div className="shared-body">
+          <h1 className="shared-title">{chat.title}</h1>
+          <div className="msg-list">
+            {chat.messages.map(msg => (
+              <div key={msg.id} className={`msg-row msg-${msg.role}`}>
+                {msg.role === 'assistant' && (
+                  <div className="avatar avatar-ai"><LogoIcon /></div>
+                )}
+                <div className="msg-content">
+                  <div className={`bubble bubble-${msg.role}`}>
+                    <RichText text={msg.text} />
+                  </div>
+                  {msg.sources?.length > 0 && (
+                    <div className="source-row">
+                      <span className="source-label">Sources</span>
+                      {msg.sources.map((src, i) => (
+                        <span key={i} className="source-chip source-chip-static">
+                          <DocIcon />{src.file}
+                          {src.score && <span className="source-score">{(src.score * 100).toFixed(0)}%</span>}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {msg.role === 'user' && (
+                  <div className="avatar avatar-user">
+                    <div className="user-initials" style={{ width: 28, height: 28, fontSize: 11 }}>?</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,        setUser]        = useState(loadUser)
@@ -198,7 +305,7 @@ export default function App() {
   const [verifyToken, setVerifyToken] = useState(null)
   const [resetToken,  setResetToken]  = useState(null)   // ← CHANGE 1: new state for ?reset= token
   const [darkMode,    setDarkMode]    = useState(loadDarkMode)
-  const [messages,    setMessages]    = useState(loadHistory)
+  const [messages,    setMessages]    = useState([WELCOME])
   const [input,       setInput]       = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [view,        setView]        = useState('chat')
@@ -207,9 +314,23 @@ export default function App() {
   const [dragOver,    setDragOver]    = useState(false)
   const [drawer,      setDrawer]      = useState(null)
 
-  const bottomRef   = useRef(null)
-  const textareaRef = useRef(null)
-  const fileRef     = useRef(null)
+  // ── Chat history (sidebar list) ────────────────────────────────────────
+  const [chats,        setChats]        = useState([])
+  const [chatsLoading,  setChatsLoading] = useState(true)
+  const [activeChatId, setActiveChatId] = useState(null)   // null = new, unsaved chat
+  const [renamingId,   setRenamingId]   = useState(null)
+  const [renameValue,  setRenameValue]  = useState('')
+  const [shareToast,   setShareToast]   = useState(null)
+
+  // ── Public "view a shared chat" mode ───────────────────────────────────
+  // If the URL has ?shared=SOME_ID, we skip the normal app entirely and
+  // render a read-only view — no login required, same as any share link.
+  const [sharedId] = useState(() => new URLSearchParams(window.location.search).get('shared'))
+
+  const bottomRef       = useRef(null)
+  const textareaRef     = useRef(null)
+  const fileRef          = useRef(null)
+  const activeChatIdRef  = useRef(null) // mirrors activeChatId, read inside sendMessage to avoid stale closures
 
   // ── CHANGE 2: Detect ?verify=TOKEN and ?reset=TOKEN in URL on first load ──
   useEffect(() => {
@@ -232,12 +353,32 @@ export default function App() {
     localStorage.setItem(THEME_KEY, darkMode ? 'dark' : 'light')
   }, [darkMode])
 
-  // Persist chat history
+  // Keep the ref in sync so sendMessage() (a useCallback that isn't
+  // re-created on every render) always reads the *current* chat id,
+  // not a stale one captured when the callback was first created.
   useEffect(() => {
+    activeChatIdRef.current = activeChatId
+  }, [activeChatId])
+
+  // Fetch the sidebar chat list once we're in the main app.
+  const fetchChats = useCallback(async () => {
+    if (!token) return
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.filter(m => m.done)))
-    } catch {}
-  }, [messages])
+      const res = await fetch('/chats', { headers: { 'Authorization': `Bearer ${token}` } })
+      if (res.status === 401) { handleSignOut(); return }
+      const data = await res.json()
+      if (res.ok) setChats(data.chats || [])
+    } catch (err) {
+      console.log('error fetching chats:', err.message)
+    } finally {
+      setChatsLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  useEffect(() => {
+    if (page === 'app') fetchChats()
+  }, [page, fetchChats])
 
   // Auto-scroll
   useEffect(() => {
@@ -269,14 +410,116 @@ export default function App() {
     localStorage.removeItem(USER_STORAGE_KEY)
     localStorage.removeItem(TOKEN_KEY)
     setMessages([WELCOME])
+    setChats([])
+    setActiveChatId(null)
     setPage('landing')
   }
 
   const toggleDarkMode = () => setDarkMode(d => !d)
 
-  const clearHistory = () => {
+  // Start a brand-new, unsaved chat. The backend only actually creates
+  // a chat document once the first question is sent (see sendMessage) —
+  // this just resets the local view.
+  const startNewChat = () => {
+    setActiveChatId(null)
+    activeChatIdRef.current = null
     setMessages([WELCOME])
-    localStorage.removeItem(STORAGE_KEY)
+    setInput('')
+  }
+
+  // Load an existing chat's full message history and make it active.
+  const openChat = async (id) => {
+    if (id === activeChatId) return
+    try {
+      const res = await fetch(`/chats/${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (res.status === 401) { handleSignOut(); return }
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'could not load chat')
+      const loaded = (data.chat.messages || []).map(m => ({ ...m, done: true }))
+      setMessages(loaded.length ? loaded : [WELCOME])
+      setActiveChatId(id)
+      activeChatIdRef.current = id
+    } catch (err) {
+      console.log('error loading chat:', err.message)
+    }
+  }
+
+  // Pin / unpin a chat. Optimistic-ish: just refetches the list after
+  // the PUT succeeds, since pin also changes sort order.
+  const togglePin = async (chat, e) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(`/chats/${chat._id}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body:    JSON.stringify({ pinned: !chat.pinned }),
+      })
+      if (res.ok) fetchChats()
+    } catch (err) {
+      console.log('error toggling pin:', err.message)
+    }
+  }
+
+  const startRename = (chat, e) => {
+    e.stopPropagation()
+    setRenamingId(chat._id)
+    setRenameValue(chat.title)
+  }
+
+  const submitRename = async (id) => {
+    const title = renameValue.trim()
+    setRenamingId(null)
+    if (!title) return
+    try {
+      const res = await fetch(`/chats/${id}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body:    JSON.stringify({ title }),
+      })
+      if (res.ok) fetchChats()
+    } catch (err) {
+      console.log('error renaming chat:', err.message)
+    }
+  }
+
+  const deleteChatItem = async (id, e) => {
+    e.stopPropagation()
+    if (!window.confirm('Delete this chat? This cannot be undone.')) return
+    try {
+      const res = await fetch(`/chats/${id}`, {
+        method:  'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (res.ok) {
+        if (id === activeChatId) startNewChat()
+        fetchChats()
+      }
+    } catch (err) {
+      console.log('error deleting chat:', err.message)
+    }
+  }
+
+  // Turns on sharing for this chat and copies the public link to the
+  // clipboard. Calling it again on an already-shared chat is fine —
+  // the backend just issues a fresh link.
+  const shareChat = async (id, e) => {
+    e.stopPropagation()
+    try {
+      const res  = await fetch(`/chats/${id}/share`, {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'could not create share link')
+
+      const link = `${window.location.origin}${window.location.pathname}?shared=${data.shareId}`
+      await navigator.clipboard.writeText(link)
+      setShareToast('Link copied to clipboard!')
+    } catch (err) {
+      setShareToast(err.message || 'Could not create share link')
+    } finally {
+      setTimeout(() => setShareToast(null), 2500)
+    }
   }
 
   // ── SSE streaming ─────────────────────────────────────────────────────────
@@ -305,7 +548,7 @@ export default function App() {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({ question: q, chatId: activeChatIdRef.current }),
       })
 
       if (res.status === 401) { handleSignOut(); return }
@@ -328,6 +571,19 @@ export default function App() {
           const tok = line.slice(6)
 
           if (tok === '[DONE]') break outer
+
+          // Sent once, right at the start of the stream. Tells us which
+          // chat this exchange belongs to — matters most when this was
+          // a brand-new chat, since we didn't have an id until the
+          // backend created one just now.
+          if (tok.startsWith('[CHAT_ID]')) {
+            const id = tok.slice(9)
+            if (!activeChatIdRef.current) {
+              activeChatIdRef.current = id
+              setActiveChatId(id)
+            }
+            continue
+          }
 
           if (tok.startsWith('[SOURCES]')) {
             try {
@@ -365,8 +621,10 @@ export default function App() {
       ))
       setIsStreaming(false)
       textareaRef.current?.focus()
+      fetchChats() // pick up the new/updated title and refreshed sort order
     }
-  }, [input, isStreaming, token])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, isStreaming, token, fetchChats])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -404,6 +662,13 @@ export default function App() {
   }
 
   // ── Page routing ──────────────────────────────────────────────────────────
+
+  // SHARED CHAT VIEW — bypasses login entirely. Checked first, before
+  // landing/auth/app, since a share link should work for someone who
+  // has never signed in at all.
+  if (sharedId) {
+    return <SharedChatView shareId={sharedId} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+  }
 
   // LANDING PAGE
   if (page === 'landing') {
@@ -454,6 +719,64 @@ export default function App() {
           </button>
         </nav>
 
+        <button className="new-chat-btn" onClick={() => { setView('chat'); startNewChat() }}>
+          <PlusIcon /><span>New chat</span>
+        </button>
+
+        <div className="chat-list">
+          {chatsLoading && <p className="chat-list-empty">Loading…</p>}
+          {!chatsLoading && chats.length === 0 && (
+            <p className="chat-list-empty">No chats yet — ask something to start one.</p>
+          )}
+          {chats.map(chat => (
+            <div
+              key={chat._id}
+              className={`chat-item-row${chat._id === activeChatId ? ' chat-item-row-active' : ''}`}
+            >
+              {renamingId === chat._id ? (
+                <input
+                  className="chat-rename-input"
+                  autoFocus
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  onBlur={() => submitRename(chat._id)}
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter')  submitRename(chat._id)
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                />
+              ) : (
+                <button
+                  className="chat-item"
+                  onClick={() => { setView('chat'); openChat(chat._id) }}
+                  title={chat.title}
+                >
+                  {chat.pinned && <PinIcon filled />}
+                  <span className="chat-item-title">{chat.title}</span>
+                </button>
+              )}
+
+              <div className="chat-item-actions">
+                <button className="chat-action-btn" title={chat.pinned ? 'Unpin' : 'Pin'} onClick={e => togglePin(chat, e)}>
+                  <PinIcon filled={chat.pinned} />
+                </button>
+                <button className="chat-action-btn" title="Rename" onClick={e => startRename(chat, e)}>
+                  <EditIcon />
+                </button>
+                <button className="chat-action-btn" title="Share" onClick={e => shareChat(chat._id, e)}>
+                  <ShareIcon />
+                </button>
+                <button className="chat-action-btn chat-action-danger" title="Delete" onClick={e => deleteChatItem(chat._id, e)}>
+                  <TrashIcon />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {shareToast && <div className="share-toast">{shareToast}</div>}
+
         <div className="sidebar-footer">
           {user && (
             <div className="sidebar-user">
@@ -488,13 +811,8 @@ export default function App() {
                 <h1 className="chat-title">SOP Assistant</h1>
                 <span className="chat-subtitle">Answers grounded in your uploaded documents</span>
               </div>
-              <div className="chat-topbar-right">
-                {messages.length > 1 && (
-                  <button className="clear-btn" onClick={clearHistory}>
-                    <TrashIcon /><span>Clear</span>
-                  </button>
-                )}
-              </div>
+              <div className="chat-topbar-right" />
+
             </div>
 
             <div className="msg-scroll">
